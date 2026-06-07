@@ -1,0 +1,11 @@
+services:
+  timbre:
+    build: .
+    image: spadav/timbre:latest
+    ports:
+      - "9000:9000"
+    volumes:
+      - timbre-data:/root/.config/timbre
+
+volumes:
+  timbre-data:
