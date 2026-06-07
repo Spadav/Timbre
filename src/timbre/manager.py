@@ -86,6 +86,22 @@ class BackendManager:
     def all_voices(self) -> dict[str, list[str]]:
         return {name: backend.voices for name, backend in self.tts.items()}
 
+    async def prepare_voice_clone(
+        self, voice: str, backend_name: str | None = None
+    ) -> list[dict[str, str]]:
+        results: list[dict[str, str]] = []
+        names = [backend_name] if backend_name else list(self.tts)
+        for name in names:
+            backend = self.tts.get(name)
+            if backend is None:
+                raise UnknownBackend(f"Unknown TTS backend '{name}'. Available: {sorted(self.tts)}")
+            prepare = getattr(backend, "prepare_voice_clone", None)
+            if not callable(prepare):
+                continue
+            async with self._locks[("tts", name)]:
+                results.append(await prepare(voice))
+        return results
+
     async def sweep_once(self) -> None:
         for name, backend in self.tts.items():
             if await backend.maybe_unload(self._tts_ttls[name]):

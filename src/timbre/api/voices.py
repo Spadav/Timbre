@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
+from timbre.errors import BackendUnavailable, UnknownBackend
+
 router = APIRouter()
 
 
@@ -10,12 +12,27 @@ async def create_voice(
     request: Request,
     name: str = Form(...),
     file: UploadFile = File(...),
+    backend: str | None = Form(default=None),
+    precompute: bool = Form(default=True),
 ) -> dict[str, object]:
     try:
         record = await request.app.state.voice_store.save_upload(name, file)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"name": record.name, "path": str(record.path), "audio_path": str(record.audio_path)}
+    prepared: list[dict[str, str]] = []
+    if precompute:
+        try:
+            prepared = await request.app.state.manager.prepare_voice_clone(name, backend)
+        except UnknownBackend as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except BackendUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "name": record.name,
+        "path": str(record.path),
+        "audio_path": str(record.audio_path),
+        "prepared": prepared,
+    }
 
 
 @router.delete("/v1/voices/{name}")
