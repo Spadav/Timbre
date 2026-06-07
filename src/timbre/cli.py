@@ -53,8 +53,8 @@ def download_models(config_path: Path, backend: str) -> None:
     if backend in {"parakeet", "all"}:
         parakeet = config.stt.backends.get("parakeet")
         if parakeet:
-            repo_id = parakeet.options.get("repo_id")
+            repo_id = parakeet.options.get("repo_id", "nemo-parakeet-tdt-0.6b-v3")
             model_path = parakeet.options.get("model_path")
-            if repo_id and model_path:
+            if model_path:
                 path = snapshot_download(repo_id=repo_id, local_dir=model_path)
                 print(f"Downloaded Parakeet model files to: {path}")

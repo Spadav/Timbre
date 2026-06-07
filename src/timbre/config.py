@@ -74,11 +74,13 @@ def default_config() -> TimbreConfig:
                     enabled=True, device="cpu", ttl=300, options={"model_size": "base"}
                 ),
                 "parakeet": BackendConfig(
-                    enabled=False,
+                    enabled=True,
                     device="cpu",
                     ttl=300,
                     options={
-                        "repo_id": "eschmidbauer/parakeet-unified-en-0.6b-onnx",
+                        "model": "parakeet-tdt-0.6b-v3",
+                        "repo_id": "nemo-parakeet-tdt-0.6b-v3",
+                        "quantization": "int8",
                         "model_path": str(CONFIG_DIR / "models" / "parakeet"),
                     },
                 ),
