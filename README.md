@@ -20,6 +20,16 @@ curl http://127.0.0.1:9000/health
 curl http://127.0.0.1:9000/v1/backends
 ```
 
+Web UI: `http://127.0.0.1:9000/ui/`
+
+The UI source lives in `web/` and is served from the compiled `web/dist` assets:
+
+```bash
+cd web
+npm install
+npm run build
+```
+
 ## OpenAI-Compatible Endpoints
 
 - `POST /v1/audio/speech`

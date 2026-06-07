@@ -14,3 +14,12 @@ def test_health_and_backends_respond_without_loading_models() -> None:
     with TestClient(create_app(config)) as client:
         assert client.get("/health").json()["status"] == "ok"
         assert client.get("/v1/backends").json() == {"data": []}
+
+
+def test_ui_is_served_when_dist_exists() -> None:
+    config = default_config()
+
+    with TestClient(create_app(config)) as client:
+        response = client.get("/ui/")
+        assert response.status_code == 200
+        assert "Timbre" in response.text
