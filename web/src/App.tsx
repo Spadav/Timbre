@@ -189,7 +189,9 @@ function SpeakPage({
   const waveformRef = useWaveform(audioUrl);
 
   const voiceOptions = useMemo(() => {
-    const cloned = voices.filter((item) => item.type === "cloned");
+    const cloned = voices.filter(
+      (item) => item.type === "cloned" && item.prepared_backends?.includes(backend)
+    );
     const presets = voices.filter((item) => item.type === "preset" && item.backend === backend);
     return [...cloned, ...presets].map((item) => item.name);
   }, [backend, voices]);

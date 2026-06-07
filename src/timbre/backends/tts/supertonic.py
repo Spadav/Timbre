@@ -56,11 +56,7 @@ class SupertonicBackend(TTSBackend):
 
     @property
     def voices(self) -> list[str]:
-        preset = ["M1", "F1", "default"]
-        if self.voices_dir:
-            cloned = [path.name for path in Path(self.voices_dir).iterdir() if path.is_dir()] if Path(self.voices_dir).exists() else []
-            return sorted(set(preset + cloned))
-        return preset
+        return ["M1", "F1", "default"]
 
 
 def _filter_constructor_kwargs(cls: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
