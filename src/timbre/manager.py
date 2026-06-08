@@ -111,6 +111,8 @@ class BackendManager:
                 self._after_unload()
 
     def start_sweeper(self) -> None:
+        if not self.tts and not self.stt:
+            return
         if self._sweep_task is None or self._sweep_task.done():
             self._sweep_task = asyncio.create_task(self._sweep_loop())
 

@@ -1,4 +1,5 @@
 import {
+  ClipboardList,
   Headphones,
   Mic,
   Play,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Page = "speak" | "listen" | "backends" | "voices" | "config";
+type Page = "speak" | "listen" | "backends" | "voices" | "log" | "config";
 
 type Backend = {
   name: string;
@@ -34,6 +35,17 @@ type Voice = {
 type Health = {
   status: string;
   service: string;
+};
+
+type ActivityEntry = {
+  id: string;
+  time: string;
+  type: "TTS" | "STT";
+  backend: string;
+  input: string;
+  duration: number;
+  format: string;
+  status: "ok" | "error";
 };
 
 const api = {
@@ -62,6 +74,18 @@ function App() {
   const [backends, setBackends] = useState<Backend[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [statusText, setStatusText] = useState("starting");
+  const [activity, setActivity] = useState<ActivityEntry[]>([]);
+
+  const addActivity = useCallback((entry: Omit<ActivityEntry, "id" | "time">) => {
+    setActivity((current) => [
+      {
+        ...entry,
+        id: crypto.randomUUID(),
+        time: new Date().toLocaleTimeString([], { hour12: false })
+      },
+      ...current
+    ].slice(0, 80));
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -102,6 +126,7 @@ function App() {
           <NavItem page="listen" active={page} onClick={setPage} label="Listen" icon={<Headphones />} />
           <NavItem page="backends" active={page} onClick={setPage} label="Backends" icon={<Radio />} />
           <NavItem page="voices" active={page} onClick={setPage} label="Voices" icon={<Mic />} />
+          <NavItem page="log" active={page} onClick={setPage} label="Log" icon={<ClipboardList />} />
           <NavItem page="config" active={page} onClick={setPage} label="Config" icon={<Settings />} />
         </nav>
         <div className="side-status">
@@ -131,11 +156,18 @@ function App() {
         </header>
         <section className="content">
           {page === "speak" && (
-            <SpeakPage backends={backends} voices={voices} onRefresh={refresh} />
+            <SpeakPage
+              backends={backends}
+              voices={voices}
+              activity={activity}
+              onActivity={addActivity}
+              onRefresh={refresh}
+            />
           )}
-          {page === "listen" && <ListenPage backends={backends} />}
+          {page === "listen" && <ListenPage backends={backends} onActivity={addActivity} />}
           {page === "backends" && <BackendsPage backends={backends} />}
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
+          {page === "log" && <LogPage activity={activity} />}
           {page === "config" && <ConfigPage backends={backends} />}
         </section>
       </main>
@@ -168,10 +200,14 @@ function NavItem({
 function SpeakPage({
   backends,
   voices,
+  activity,
+  onActivity,
   onRefresh
 }: {
   backends: Backend[];
   voices: Voice[];
+  activity: ActivityEntry[];
+  onActivity: (entry: Omit<ActivityEntry, "id" | "time">) => void;
   onRefresh: () => void;
 }) {
   const ttsBackends = backends.filter((backend) => backend.kind === "tts");
@@ -231,9 +267,26 @@ function SpeakPage({
       const blob = await res.blob();
       if (audioUrl) URL.revokeObjectURL(audioUrl);
       setAudioUrl(URL.createObjectURL(blob));
-      setGenerationSeconds((performance.now() - start) / 1000);
+      const elapsed = (performance.now() - start) / 1000;
+      setGenerationSeconds(elapsed);
+      onActivity({
+        type: "TTS",
+        backend,
+        input: text,
+        duration: elapsed,
+        format,
+        status: "ok"
+      });
       onRefresh();
     } catch (err) {
+      onActivity({
+        type: "TTS",
+        backend,
+        input: text,
+        duration: (performance.now() - start) / 1000,
+        format,
+        status: "error"
+      });
       setError(err instanceof Error ? err.message : "generation failed");
     } finally {
       setBusy(false);
@@ -243,66 +296,78 @@ function SpeakPage({
   const rtf = duration > 0 && generationSeconds > 0 ? generationSeconds / duration : 0;
 
   return (
-    <div className="page-grid">
-      <SectionHeader num="01" title="input" right={`${text.length}/4096`} />
-      <textarea
-        className="input-area text-input"
-        maxLength={4096}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") generate();
-        }}
-      />
-      <div className="input-meta">
-        <div className="input-meta-left">31 languages · wav / mp3 / opus / flac</div>
-      </div>
+    <div className="speak-layout">
+      <div className="page-grid speak-main">
+        <SectionHeader num="01" title="input" right={`${text.length}/4096`} />
+        <textarea
+          className="input-area text-input"
+          maxLength={4096}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") generate();
+          }}
+        />
+        <div className="input-meta">
+          <div className="input-meta-left">31 languages · wav / mp3 / opus / flac</div>
+        </div>
 
-      <SectionHeader num="02" title="parameters" />
-      <div className="params">
-        <SelectParam label="backend" value={backend} values={ttsBackends.map((item) => item.name)} onChange={setBackend} accent />
-        <SelectParam label="voice" value={voice} values={voiceOptions} onChange={setVoice} />
-        <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
-        <div className="param">
-          <div className="param-label">speed</div>
-          <div className="slider-row">
-            <input className="range" type="range" min="0.5" max="1.5" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
-            <div className="slider-val">{speed.toFixed(2)}</div>
+        <SectionHeader num="02" title="parameters" />
+        <div className="params">
+          <SelectParam label="backend" value={backend} values={ttsBackends.map((item) => item.name)} onChange={setBackend} accent />
+          <SelectParam label="voice" value={voice} values={voiceOptions} onChange={setVoice} />
+          <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
+          <div className="param">
+            <div className="param-label">speed</div>
+            <div className="slider-row">
+              <input className="range" type="range" min="0.5" max="1.5" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
+              <div className="slider-val">{speed.toFixed(2)}</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <SectionHeader num="03" title="output" right={duration ? `${duration.toFixed(1)}s` : "0.0s"} />
-      <div className="wave-area">
-        <div className="wave-player">
-          <button className="play-btn" onClick={() => audioRef.current?.play()} disabled={!audioUrl} title="Play">
-            <Play size={15} />
-          </button>
-          <div className="track" />
-          <div className="wave-time">
-            {formatTime(audioRef.current?.currentTime || 0)} / {formatTime(duration)}
+        <SectionHeader num="03" title="output" right={duration ? `${duration.toFixed(1)}s` : "0.0s"} />
+        <div className="wave-area">
+          <div className="wave-player">
+            <button className="play-btn" onClick={() => audioRef.current?.play()} disabled={!audioUrl} title="Play">
+              <Play size={15} />
+            </button>
+            <div className="track" />
+            <div className="wave-time">
+              {formatTime(audioRef.current?.currentTime || 0)} / {formatTime(duration)}
+            </div>
           </div>
+          <canvas className="wave-canvas" ref={waveformRef} />
+          <audio ref={audioRef} src={audioUrl} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)} />
         </div>
-        <canvas className="wave-canvas" ref={waveformRef} />
-        <audio ref={audioRef} src={audioUrl} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)} />
-      </div>
 
-      <div className="metrics-row">
-        <Metric label="generation" value={generationSeconds ? `${generationSeconds.toFixed(2)}s` : "-"} />
-        <Metric label="audio" value={duration ? `${duration.toFixed(2)}s` : "-"} />
-        <Metric label="rtf" value={rtf ? `${rtf.toFixed(2)}x` : "-"} />
-      </div>
+        <div className="metrics-row">
+          <Metric label="generation" value={generationSeconds ? `${generationSeconds.toFixed(2)}s` : "-"} />
+          <Metric label="audio" value={duration ? `${duration.toFixed(2)}s` : "-"} />
+          <Metric label="rtf" value={rtf ? `${rtf.toFixed(2)}x` : "-"} />
+        </div>
 
-      {error && <div className="error-line">{error}</div>}
-      <button className="gen-bar" onClick={generate} disabled={busy || !text.trim()}>
-        <span className="gen-text">{busy ? "Generating_" : "Generate_"}</span>
-        <span className="gen-hint">ctrl+enter</span>
-      </button>
+        {error && <div className="error-line">{error}</div>}
+        <button className="gen-bar" onClick={generate} disabled={busy || !text.trim()}>
+          <span className="gen-text">{busy ? "Generating_" : "Generate_"}</span>
+          <span className="gen-hint">ctrl+enter</span>
+        </button>
+      </div>
+      <aside className="speak-rail">
+        <WireframeSphere />
+        <CompactActivityLog activity={activity} />
+      </aside>
     </div>
   );
 }
 
-function ListenPage({ backends }: { backends: Backend[] }) {
+function ListenPage({
+  backends,
+  onActivity
+}: {
+  backends: Backend[];
+  onActivity: (entry: Omit<ActivityEntry, "id" | "time">) => void;
+}) {
   const sttBackends = backends.filter((backend) => backend.kind === "stt");
   const [backend, setBackend] = useState("parakeet");
   const [file, setFile] = useState<File | null>(null);
@@ -369,8 +434,25 @@ function ListenPage({ backends }: { backends: Backend[] }) {
       }
       const body = await res.json();
       setTranscript(body.text || "");
-      setProcessingSeconds((performance.now() - start) / 1000);
+      const elapsed = (performance.now() - start) / 1000;
+      setProcessingSeconds(elapsed);
+      onActivity({
+        type: "STT",
+        backend,
+        input: file.name,
+        duration: elapsed,
+        format: file.name.split(".").pop() || "audio",
+        status: "ok"
+      });
     } catch (err) {
+      onActivity({
+        type: "STT",
+        backend,
+        input: file.name,
+        duration: (performance.now() - start) / 1000,
+        format: file.name.split(".").pop() || "audio",
+        status: "error"
+      });
       setError(err instanceof Error ? err.message : "transcription failed");
     }
   }
@@ -547,6 +629,250 @@ function ConfigPage({ backends }: { backends: Backend[] }) {
   );
 }
 
+function LogPage({ activity }: { activity: ActivityEntry[] }) {
+  return (
+    <div className="page-grid">
+      <SectionHeader num="01" title="activity log" right={`${activity.length}`} />
+      <div className="log-table">
+        <div className="log-row log-head">
+          <span>Time</span>
+          <span>Type</span>
+          <span>Backend</span>
+          <span>Input</span>
+          <span>Duration</span>
+          <span>Format</span>
+          <span>Status</span>
+        </div>
+        {activity.length === 0 && <div className="empty-log">No UI requests yet.</div>}
+        {activity.map((entry) => (
+          <div className="log-row" key={entry.id}>
+            <span>{entry.time}</span>
+            <span className={`log-badge ${entry.type.toLowerCase()}`}>{entry.type}</span>
+            <span>{entry.backend}</span>
+            <span title={entry.input}>{truncate(entry.input, 42)}</span>
+            <span>{entry.duration.toFixed(2)}s</span>
+            <span>{entry.format}</span>
+            <span className={entry.status === "ok" ? "ok-text" : "err-text"}>{entry.status}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompactActivityLog({ activity }: { activity: ActivityEntry[] }) {
+  return (
+    <div className="rail-panel activity-panel">
+      <div className="rail-header">activity</div>
+      <div className="activity-list">
+        {activity.length === 0 && <div className="activity-empty">No requests yet.</div>}
+        {activity.slice(0, 20).map((entry) => (
+          <div className="activity-entry" key={entry.id}>
+            <span className="activity-time">{entry.time}</span>
+            <span className={`log-badge ${entry.type.toLowerCase()}`}>{entry.type}</span>
+            <span className="activity-backend">{entry.backend}</span>
+            <span className={entry.status === "ok" ? "activity-duration" : "activity-duration err-text"}>
+              {entry.duration.toFixed(2)}s
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WireframeSphere() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let raf = 0;
+    let energy = 0;
+    let targetEnergy = 0;
+    let nextPulse = performance.now() + randomBetween(3000, 5000);
+    let glitchFrames = 0;
+    let lastGhost = 0;
+    const ghosts: { at: number; points: ProjectedPoint[] }[] = [];
+
+    const drawFrame = (t: number) => {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const width = Math.max(1, Math.floor(rect.width * dpr));
+      const height = Math.max(1, Math.floor(rect.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+
+      if (t > nextPulse) {
+        targetEnergy = randomBetween(0.6, 1.0);
+        nextPulse = t + randomBetween(3000, 5000);
+        glitchFrames = Math.random() > 0.5 ? 2 : 1;
+      }
+
+      targetEnergy *= 0.92;
+      if (targetEnergy < 0.02) targetEnergy = 0;
+      energy += (targetEnergy - energy) * 0.04;
+
+      const points = projectSphere(t, rect.width, rect.height, energy);
+      if (energy > 0.35 && t - lastGhost > 300) {
+        ghosts.unshift({ at: t, points });
+        ghosts.splice(3);
+        lastGhost = t;
+      }
+
+      drawGhosts(ctx, ghosts, t);
+      drawSphere(ctx, points);
+      drawScanlines(ctx, rect.width, rect.height, t);
+      if (glitchFrames > 0) {
+        applyGlitch(ctx, canvas.width, canvas.height, dpr);
+        glitchFrames -= 1;
+      }
+
+      raf = requestAnimationFrame(drawFrame);
+    };
+
+    raf = requestAnimationFrame(drawFrame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="rail-panel viz-panel">
+      <div className="rail-header">visualization</div>
+      <canvas className="sphere-canvas" ref={canvasRef} />
+    </div>
+  );
+}
+
+type ProjectedPoint = {
+  x: number;
+  y: number;
+  depth: number;
+  lat: number;
+  lon: number;
+};
+
+function projectSphere(t: number, width: number, height: number, energy: number): ProjectedPoint[] {
+  const latSegments = 18;
+  const lonSegments = 26;
+  const radius = Math.min(115, Math.min(width, height) * 0.38);
+  const rotY = t * 0.00012;
+  const breath = 1 + Math.sin(t * 0.0008) * 0.015;
+  const points: ProjectedPoint[] = [];
+  for (let lat = 0; lat <= latSegments; lat++) {
+    const theta = (lat / latSegments) * Math.PI;
+    for (let lon = 0; lon < lonSegments; lon++) {
+      const phi = (lon / lonSegments) * Math.PI * 2;
+      const distortion = 1 + energy * 0.4 * Math.sin(phi * 3 + t * 0.004) * Math.cos(theta * 2);
+      const x0 = Math.sin(theta) * Math.cos(phi) * distortion;
+      const y0 = Math.cos(theta) * (1 + energy * 0.12 * Math.sin(phi * 2));
+      const z0 = Math.sin(theta) * Math.sin(phi) * distortion;
+      const x = x0 * Math.cos(rotY) + z0 * Math.sin(rotY);
+      const z = -x0 * Math.sin(rotY) + z0 * Math.cos(rotY);
+      const perspective = 1 / (1.9 - z * 0.55);
+      points.push({
+        x: width / 2 + x * radius * breath * perspective,
+        y: height / 2 + y0 * radius * breath * perspective,
+        depth: (z + 1) / 2,
+        lat,
+        lon
+      });
+    }
+  }
+  return points;
+}
+
+function drawSphere(ctx: CanvasRenderingContext2D, points: ProjectedPoint[]) {
+  ctx.lineWidth = 0.55;
+  drawSphereLines(ctx, points, "#e07845", 1);
+  for (const point of points) {
+    if (point.depth <= 0.45) continue;
+    ctx.globalAlpha = Math.min(0.85, 0.22 + point.depth * 0.58);
+    ctx.fillStyle = "#e07845";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 0.5 + point.depth * 1.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawGhosts(
+  ctx: CanvasRenderingContext2D,
+  ghosts: { at: number; points: ProjectedPoint[] }[],
+  t: number
+) {
+  ghosts.forEach((ghost, index) => {
+    const age = t - ghost.at;
+    if (age > 1200) return;
+    ctx.lineWidth = 0.35;
+    const opacity = (1 - age / 1200) * 0.55;
+    drawSphereLines(ctx, ghost.points, index === 0 ? "#b85e35" : "#7a3f22", opacity);
+  });
+}
+
+function drawSphereLines(
+  ctx: CanvasRenderingContext2D,
+  points: ProjectedPoint[],
+  color: string,
+  opacity: number
+) {
+  const lonSegments = 26;
+  const latSegments = 18;
+  ctx.strokeStyle = color;
+  for (let lat = 0; lat <= latSegments; lat++) {
+    for (let lon = 0; lon < lonSegments; lon++) {
+      const a = points[lat * lonSegments + lon];
+      const b = points[lat * lonSegments + ((lon + 1) % lonSegments)];
+      strokeSegment(ctx, a, b, opacity);
+    }
+  }
+  for (let lon = 0; lon < lonSegments; lon++) {
+    for (let lat = 0; lat < latSegments; lat++) {
+      const a = points[lat * lonSegments + lon];
+      const b = points[(lat + 1) * lonSegments + lon];
+      strokeSegment(ctx, a, b, opacity);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function strokeSegment(ctx: CanvasRenderingContext2D, a: ProjectedPoint, b: ProjectedPoint, opacity: number) {
+  const depth = (a.depth + b.depth) / 2;
+  ctx.globalAlpha = opacity * (0.16 + depth * 0.55);
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+}
+
+function drawScanlines(ctx: CanvasRenderingContext2D, width: number, height: number, t: number) {
+  ctx.globalAlpha = 0.025;
+  ctx.fillStyle = "#ffffff";
+  for (let y = 0; y < height; y += 3) ctx.fillRect(0, y, width, 1);
+  ctx.globalAlpha = 0.04;
+  ctx.fillStyle = "#e07845";
+  ctx.fillRect(0, (t * 0.015) % height, width, 2);
+  ctx.globalAlpha = 1;
+}
+
+function applyGlitch(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number) {
+  const slices = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < slices; i++) {
+    const sliceHeight = Math.floor(randomBetween(2, 8) * dpr);
+    const y = Math.floor(Math.random() * Math.max(1, height - sliceHeight));
+    const shift = Math.floor(randomBetween(1, 3) * dpr) * (Math.random() > 0.5 ? 1 : -1);
+    const image = ctx.getImageData(0, y, width, sliceHeight);
+    ctx.putImageData(image, shift, y);
+  }
+}
+
 function BackendGroup({ title, backends }: { title: string; backends: Backend[] }) {
   return (
     <div>
@@ -679,7 +1005,8 @@ function pageLabel(page: Page) {
     listen: "02 — listen",
     backends: "03 — backends",
     voices: "04 — voices",
-    config: "05 — config"
+    log: "05 — log",
+    config: "06 — config"
   };
   return labels[page];
 }
@@ -696,6 +1023,14 @@ async function safeJson(res: Response): Promise<{ detail?: string }> {
   } catch {
     return {};
   }
+}
+
+function truncate(value: string, max: number) {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * (max - min);
 }
 
 export default App;
