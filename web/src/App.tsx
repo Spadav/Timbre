@@ -282,6 +282,7 @@ function SpeakPage({
   const [duration, setDuration] = useState(0);
   const [generationSeconds, setGenerationSeconds] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPlayer = useAudioPlayer(audioRef, audioUrl);
   const waveformRef = useWaveform(audioUrl);
   const sphereEnergyRef = useAudioEnergy(audioRef, audioUrl, busy);
 
@@ -390,12 +391,12 @@ function SpeakPage({
         <SectionHeader num="03" title="output" right={duration ? `${duration.toFixed(1)}s` : "0.0s"} />
         <div className="wave-area">
           <div className="wave-player">
-            <button className="play-btn" onClick={() => audioRef.current?.play()} disabled={!audioUrl} title="Play">
-              <Play size={15} />
+            <button className="play-btn" onClick={audioPlayer.toggle} disabled={!audioUrl} title={audioPlayer.playing ? "Stop" : "Play"}>
+              {audioPlayer.playing ? <Square size={15} /> : <Play size={15} />}
             </button>
             <div className="track" />
             <div className="wave-time">
-              {formatTime(audioRef.current?.currentTime || 0)} / {formatTime(duration)}
+              {formatTime(audioPlayer.currentTime)} / {formatTime(duration)}
             </div>
           </div>
           <canvas className="wave-canvas" ref={waveformRef} />
@@ -440,6 +441,7 @@ function ListenPage({
   const [processingSeconds, setProcessingSeconds] = useState(0);
   const [error, setError] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPlayer = useAudioPlayer(audioRef, audioUrl);
   const waveformRef = useWaveform(audioUrl);
 
   useEffect(() => {
@@ -537,11 +539,11 @@ function ListenPage({
           <span className="file-name">{file?.name || "no audio selected"}</span>
         </div>
         <div className="wave-player">
-          <button className="play-btn" onClick={() => audioRef.current?.play()} disabled={!audioUrl} title="Play">
-            <Play size={15} />
+          <button className="play-btn" onClick={audioPlayer.toggle} disabled={!audioUrl} title={audioPlayer.playing ? "Stop" : "Play"}>
+            {audioPlayer.playing ? <Square size={15} /> : <Play size={15} />}
           </button>
           <div className="track" />
-          <div className="wave-time">0:00 / {formatTime(duration)}</div>
+          <div className="wave-time">{formatTime(audioPlayer.currentTime)} / {formatTime(duration)}</div>
         </div>
         <canvas className="wave-canvas" ref={waveformRef} />
         <audio ref={audioRef} src={audioUrl} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)} />
@@ -1376,6 +1378,60 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="metric-value">{value}</div>
     </div>
   );
+}
+
+function useAudioPlayer(audioRef: React.MutableRefObject<HTMLAudioElement | null>, audioUrl: string) {
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const syncTime = () => setCurrentTime(audio.currentTime || 0);
+    const onPlay = () => setPlaying(true);
+    const onStop = () => {
+      setPlaying(false);
+      syncTime();
+    };
+
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onStop);
+    audio.addEventListener("ended", onStop);
+    audio.addEventListener("timeupdate", syncTime);
+    return () => {
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onStop);
+      audio.removeEventListener("ended", onStop);
+      audio.removeEventListener("timeupdate", syncTime);
+    };
+  }, [audioRef, audioUrl]);
+
+  useEffect(() => {
+    setPlaying(false);
+    setCurrentTime(0);
+  }, [audioUrl]);
+
+  function stop() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+    setPlaying(false);
+    setCurrentTime(0);
+  }
+
+  function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!audio.paused && !audio.ended) {
+      stop();
+      return;
+    }
+    audio.play().catch(() => undefined);
+  }
+
+  return { currentTime, playing, toggle };
 }
 
 function useAudioEnergy(
