@@ -48,6 +48,36 @@ type ActivityEntry = {
   status: "ok" | "error";
 };
 
+type BackendSettings = {
+  enabled: boolean;
+  device: string;
+  ttl: number;
+  [key: string]: unknown;
+};
+
+type ConfigGroup = {
+  default: string;
+  backends: Record<string, BackendSettings>;
+};
+
+type AppConfig = {
+  server: {
+    host: string;
+    port: number;
+    ttl_check_interval: number;
+  };
+  tts: ConfigGroup;
+  stt: ConfigGroup;
+  voices: {
+    dir: string;
+  };
+};
+
+type ConfigResponse = {
+  path: string;
+  config: AppConfig;
+};
+
 const api = {
   async health(): Promise<Health> {
     const res = await fetch("/health");
@@ -65,6 +95,23 @@ const api = {
     if (!res.ok) throw new Error("voice list failed");
     const body = await res.json();
     return body.data;
+  },
+  async config(): Promise<ConfigResponse> {
+    const res = await fetch("/v1/config");
+    if (!res.ok) throw new Error("config load failed");
+    return res.json();
+  },
+  async saveConfig(config: AppConfig): Promise<ConfigResponse> {
+    const res = await fetch("/v1/config", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config)
+    });
+    if (!res.ok) {
+      const body = await safeJson(res);
+      throw new Error(body.detail || "config save failed");
+    }
+    return res.json();
   }
 };
 
@@ -168,7 +215,7 @@ function App() {
           {page === "backends" && <BackendsPage backends={backends} />}
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
           {page === "log" && <LogPage activity={activity} />}
-          {page === "config" && <ConfigPage backends={backends} />}
+          {page === "config" && <ConfigPage backends={backends} onRefresh={refresh} />}
         </section>
       </main>
     </div>
@@ -223,6 +270,7 @@ function SpeakPage({
   const [generationSeconds, setGenerationSeconds] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const waveformRef = useWaveform(audioUrl);
+  const sphereEnergyRef = useAudioEnergy(audioRef, audioUrl, busy);
 
   const voiceOptions = useMemo(() => {
     const cloned = voices.filter(
@@ -354,7 +402,7 @@ function SpeakPage({
         </button>
       </div>
       <aside className="speak-rail">
-        <WireframeSphere />
+        <WireframeSphere energyRef={sphereEnergyRef} />
         <CompactActivityLog activity={activity} />
       </aside>
     </div>
@@ -615,15 +663,238 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   );
 }
 
-function ConfigPage({ backends }: { backends: Backend[] }) {
+function ConfigPage({ backends, onRefresh }: { backends: Backend[]; onRefresh: () => void }) {
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [configPath, setConfigPath] = useState("");
+  const [optionText, setOptionText] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.config()
+      .then((body) => {
+        if (cancelled) return;
+        setConfig(body.config);
+        setConfigPath(body.path);
+        setOptionText(optionTextForConfig(body.config));
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "config load failed"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function save() {
+    if (!config) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const body = await api.saveConfig(configWithOptions(config, optionText));
+      setConfig(body.config);
+      setConfigPath(body.path);
+      setOptionText(optionTextForConfig(body.config));
+      setMessage("saved");
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "config save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!config) {
+    return (
+      <div className="page-grid">
+        <SectionHeader num="01" title="config" />
+        <div className="config-box">{error || "loading"}</div>
+      </div>
+    );
+  }
+
+  const backendNames = backends.map((item) => item.name).join(", ") || "none";
+
   return (
     <div className="page-grid">
-      <SectionHeader num="01" title="runtime" />
-      <div className="config-box">
-        <div>API: same-origin</div>
-        <div>UI: Vite React TypeScript</div>
-        <div>Backends: {backends.map((item) => item.name).join(", ") || "none"}</div>
-        <div>Config: ~/.config/timbre/config.yaml</div>
+      <SectionHeader num="01" title="runtime" right={configPath} />
+      <div className="config-grid">
+        <label className="config-field">
+          <span>host</span>
+          <input
+            value={config.server.host}
+            onChange={(event) =>
+              setConfig({ ...config, server: { ...config.server, host: event.target.value } })
+            }
+          />
+        </label>
+        <label className="config-field">
+          <span>port</span>
+          <input
+            type="number"
+            min="1"
+            max="65535"
+            value={config.server.port}
+            onChange={(event) =>
+              setConfig({ ...config, server: { ...config.server, port: Number(event.target.value) } })
+            }
+          />
+        </label>
+        <label className="config-field">
+          <span>ttl sweep</span>
+          <input
+            type="number"
+            min="1"
+            value={config.server.ttl_check_interval}
+            onChange={(event) =>
+              setConfig({
+                ...config,
+                server: { ...config.server, ttl_check_interval: Number(event.target.value) }
+              })
+            }
+          />
+        </label>
+        <label className="config-field wide">
+          <span>voices dir</span>
+          <input
+            value={config.voices.dir}
+            onChange={(event) =>
+              setConfig({ ...config, voices: { ...config.voices, dir: event.target.value } })
+            }
+          />
+        </label>
+      </div>
+
+      <SectionHeader num="02" title="defaults" right={`active: ${backendNames}`} />
+      <div className="config-grid defaults-grid">
+        <label className="config-field">
+          <span>tts default</span>
+          <select
+            value={config.tts.default}
+            onChange={(event) =>
+              setConfig({ ...config, tts: { ...config.tts, default: event.target.value } })
+            }
+          >
+            {Object.keys(config.tts.backends).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="config-field">
+          <span>stt default</span>
+          <select
+            value={config.stt.default}
+            onChange={(event) =>
+              setConfig({ ...config, stt: { ...config.stt, default: event.target.value } })
+            }
+          >
+            {Object.keys(config.stt.backends).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <ConfigBackendGroup
+        title="text to speech"
+        groupName="tts"
+        group={config.tts}
+        optionText={optionText}
+        onCoreChange={(name, patch) =>
+          setConfig({ ...config, tts: patchBackend(config.tts, name, patch) })
+        }
+        onOptionsChange={(key, value) => setOptionText({ ...optionText, [key]: value })}
+      />
+      <ConfigBackendGroup
+        title="speech to text"
+        groupName="stt"
+        group={config.stt}
+        optionText={optionText}
+        onCoreChange={(name, patch) =>
+          setConfig({ ...config, stt: patchBackend(config.stt, name, patch) })
+        }
+        onOptionsChange={(key, value) => setOptionText({ ...optionText, [key]: value })}
+      />
+
+      {error && <div className="error-line">{error}</div>}
+      {message && <div className="ok-line">{message}</div>}
+      <button className="gen-bar" onClick={save} disabled={busy}>
+        <span className="gen-text">{busy ? "Saving_" : "Save config_"}</span>
+        <span className="gen-hint">writes yaml</span>
+      </button>
+    </div>
+  );
+}
+
+function ConfigBackendGroup({
+  title,
+  groupName,
+  group,
+  optionText,
+  onCoreChange,
+  onOptionsChange
+}: {
+  title: string;
+  groupName: "tts" | "stt";
+  group: ConfigGroup;
+  optionText: Record<string, string>;
+  onCoreChange: (name: string, patch: Partial<BackendSettings>) => void;
+  onOptionsChange: (key: string, value: string) => void;
+}) {
+  return (
+    <div>
+      <SectionHeader num={groupName === "tts" ? "03" : "04"} title={title} />
+      <div className="config-backends">
+        {Object.entries(group.backends).map(([name, backend]) => {
+          const key = `${groupName}.${name}`;
+          return (
+            <div className="config-backend-card" key={key}>
+              <div className="config-backend-head">
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={backend.enabled}
+                    onChange={(event) => onCoreChange(name, { enabled: event.target.checked })}
+                  />
+                  <span>{name}</span>
+                </label>
+                <span className={backend.enabled ? "ok-text" : "err-text"}>
+                  {backend.enabled ? "enabled" : "disabled"}
+                </span>
+              </div>
+              <div className="config-grid compact">
+                <label className="config-field">
+                  <span>device</span>
+                  <input
+                    value={backend.device}
+                    onChange={(event) => onCoreChange(name, { device: event.target.value })}
+                  />
+                </label>
+                <label className="config-field">
+                  <span>ttl</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={backend.ttl}
+                    onChange={(event) => onCoreChange(name, { ttl: Number(event.target.value) })}
+                  />
+                </label>
+              </div>
+              <label className="config-field options-field">
+                <span>options</span>
+                <textarea
+                  value={optionText[key] || "{}"}
+                  onChange={(event) => onOptionsChange(key, event.target.value)}
+                />
+              </label>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -681,7 +952,7 @@ function CompactActivityLog({ activity }: { activity: ActivityEntry[] }) {
   );
 }
 
-function WireframeSphere() {
+function WireframeSphere({ energyRef }: { energyRef: React.MutableRefObject<number> }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -719,7 +990,11 @@ function WireframeSphere() {
 
       targetEnergy *= 0.92;
       if (targetEnergy < 0.02) targetEnergy = 0;
-      energy += (targetEnergy - energy) * 0.04;
+      const audioEnergy = Math.min(1, Math.max(0, energyRef.current));
+      energy += (Math.max(targetEnergy, audioEnergy) - energy) * 0.08;
+      if (audioEnergy > 0.34 && glitchFrames === 0 && Math.random() > 0.92) {
+        glitchFrames = 1;
+      }
 
       const points = projectSphere(t, rect.width, rect.height, energy);
       if (energy > 0.35 && t - lastGhost > 300) {
@@ -945,6 +1220,72 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function useAudioEnergy(
+  audioRef: React.MutableRefObject<HTMLAudioElement | null>,
+  audioUrl: string,
+  generating: boolean
+) {
+  const energyRef = useRef(0);
+  const graphRef = useRef<{
+    context: AudioContext;
+    analyser: AnalyserNode;
+    data: Uint8Array<ArrayBuffer>;
+  } | null>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    let raf = 0;
+
+    function ensureGraph() {
+      if (graphRef.current || !audio) return graphRef.current;
+      const context = new AudioContext();
+      const source = context.createMediaElementSource(audio);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.62;
+      source.connect(analyser);
+      analyser.connect(context.destination);
+      graphRef.current = {
+        context,
+        analyser,
+        data: new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
+      };
+      return graphRef.current;
+    }
+
+    function sample(t: number) {
+      let target = generating ? 0.36 + Math.sin(t * 0.018) * 0.12 : 0;
+      const graph = graphRef.current;
+      if (graph && audio && !audio.paused && !audio.ended) {
+        graph.analyser.getByteTimeDomainData(graph.data);
+        let sum = 0;
+        for (const value of graph.data) {
+          const centered = (value - 128) / 128;
+          sum += centered * centered;
+        }
+        target = Math.max(target, Math.min(1, Math.sqrt(sum / graph.data.length) * 7));
+      }
+      energyRef.current += (target - energyRef.current) * 0.22;
+      raf = requestAnimationFrame(sample);
+    }
+
+    const onPlay = () => {
+      const graph = ensureGraph();
+      graph?.context.resume().catch(() => undefined);
+    };
+
+    audio.addEventListener("play", onPlay);
+    raf = requestAnimationFrame(sample);
+    return () => {
+      audio.removeEventListener("play", onPlay);
+      cancelAnimationFrame(raf);
+    };
+  }, [audioRef, audioUrl, generating]);
+
+  return energyRef;
+}
+
 function useWaveform(audioUrl: string) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
@@ -1035,6 +1376,62 @@ function randomBetween(min: number, max: number) {
 
 function makeId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function patchBackend(group: ConfigGroup, name: string, patch: Partial<BackendSettings>): ConfigGroup {
+  return {
+    ...group,
+    backends: {
+      ...group.backends,
+      [name]: { ...group.backends[name], ...patch }
+    }
+  };
+}
+
+function optionTextForConfig(config: AppConfig) {
+  const result: Record<string, string> = {};
+  for (const groupName of ["tts", "stt"] as const) {
+    const group = config[groupName];
+    for (const [name, backend] of Object.entries(group.backends)) {
+      result[`${groupName}.${name}`] = JSON.stringify(backendOptions(backend), null, 2);
+    }
+  }
+  return result;
+}
+
+function configWithOptions(config: AppConfig, optionText: Record<string, string>): AppConfig {
+  return {
+    ...config,
+    tts: groupWithOptions("tts", config.tts, optionText),
+    stt: groupWithOptions("stt", config.stt, optionText)
+  };
+}
+
+function groupWithOptions(
+  groupName: "tts" | "stt",
+  group: ConfigGroup,
+  optionText: Record<string, string>
+): ConfigGroup {
+  const backends: Record<string, BackendSettings> = {};
+  for (const [name, backend] of Object.entries(group.backends)) {
+    const raw = optionText[`${groupName}.${name}`]?.trim() || "{}";
+    const options = JSON.parse(raw);
+    if (!options || Array.isArray(options) || typeof options !== "object") {
+      throw new Error(`${groupName}.${name} options must be a JSON object`);
+    }
+    backends[name] = {
+      enabled: backend.enabled,
+      device: backend.device,
+      ttl: backend.ttl,
+      ...options
+    };
+  }
+  return { ...group, backends };
+}
+
+function backendOptions(backend: BackendSettings) {
+  const { enabled: _enabled, device: _device, ttl: _ttl, ...options } = backend;
+  return options;
 }
 
 export default App;

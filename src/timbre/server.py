@@ -12,7 +12,7 @@ from timbre.api.discovery import router as discovery_router
 from timbre.api.speech import router as speech_router
 from timbre.api.transcribe import router as transcribe_router
 from timbre.api.voices import router as voices_router
-from timbre.config import TimbreConfig, load_config
+from timbre.config import CONFIG_PATH, TimbreConfig, load_config
 from timbre.manager import BackendManager
 from timbre.voices.store import VoiceStore
 
@@ -32,6 +32,7 @@ def create_app(config: TimbreConfig | None = None) -> FastAPI:
 
     app = FastAPI(title="Timbre", version="0.1.0", lifespan=lifespan)
     app.state.config = cfg
+    app.state.config_path = CONFIG_PATH
     app.state.manager = manager
     app.state.voice_store = voice_store
     app.include_router(discovery_router)

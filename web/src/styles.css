@@ -814,10 +814,133 @@ button {
   font-family: var(--fm);
 }
 
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--bdr);
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.config-grid.compact {
+  grid-template-columns: 1fr 110px;
+  border: 0;
+  border-radius: 0;
+}
+
+.defaults-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-field {
+  display: grid;
+  gap: 7px;
+  background: var(--bg-s);
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.config-field.wide {
+  grid-column: 1 / -1;
+}
+
+.config-field span,
+.toggle-row {
+  font-family: var(--fm);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--txt-s);
+}
+
+.config-field input,
+.config-field select,
+.config-field textarea {
+  width: 100%;
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--bg-p);
+  color: var(--txt-p);
+  min-height: 34px;
+  padding: 0 10px;
+  outline: none;
+  font-family: var(--fm);
+  font-size: 13px;
+}
+
+.config-field select option {
+  background: var(--bg-s);
+  color: var(--txt-p);
+}
+
+.config-field textarea {
+  min-height: 112px;
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.config-field input:focus,
+.config-field select:focus,
+.config-field textarea:focus {
+  border-color: var(--acc);
+}
+
+.config-backends {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.config-backend-card {
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--bg-s);
+  overflow: hidden;
+}
+
+.config-backend-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--bdr);
+  font-family: var(--fm);
+  font-size: 12px;
+}
+
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--txt-p);
+}
+
+.toggle-row input {
+  accent-color: var(--acc);
+}
+
+.options-field {
+  border-top: 1px solid var(--bdr);
+}
+
 .error-line {
   border: 1px solid rgba(239, 68, 68, 0.45);
   color: var(--err);
   background: rgba(239, 68, 68, 0.08);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--fm);
+  font-size: 12px;
+}
+
+.ok-line {
+  border: 1px solid rgba(74, 222, 128, 0.38);
+  color: var(--ok);
+  background: rgba(74, 222, 128, 0.07);
   border-radius: 4px;
   padding: 10px 12px;
   font-family: var(--fm);
@@ -889,5 +1012,12 @@ button {
   .log-row span:nth-child(n + 5),
   .log-head span:nth-child(n + 5) {
     display: none;
+  }
+
+  .config-grid,
+  .config-grid.compact,
+  .defaults-grid,
+  .config-backends {
+    grid-template-columns: 1fr;
   }
 }
