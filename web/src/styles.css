@@ -939,6 +939,81 @@ button {
   overflow: hidden;
 }
 
+.api-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--bdr);
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.api-info {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  background: var(--bg-s);
+  padding: 14px;
+}
+
+.api-info span,
+.api-card-head,
+.api-note {
+  font-family: var(--fm);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--txt-s);
+}
+
+.api-info strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--fm);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--txt-p);
+}
+
+.api-card {
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--bg-s);
+  overflow: hidden;
+}
+
+.api-card-head {
+  min-height: 40px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--bdr);
+}
+
+.api-card pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  font-family: var(--fm);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--txt-p);
+  white-space: pre;
+}
+
+.api-note {
+  padding: 12px 14px;
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--bg-t);
+  line-height: 1.6;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .config-backend-head {
   display: flex;
   justify-content: space-between;
@@ -1064,7 +1139,8 @@ button {
   .config-grid,
   .config-grid.compact,
   .defaults-grid,
-  .config-backends {
+  .config-backends,
+  .api-grid {
     grid-template-columns: 1fr;
   }
 }

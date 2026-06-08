@@ -7,13 +7,14 @@ import {
   RefreshCw,
   Settings,
   Square,
+  Terminal,
   Trash2,
   Upload,
   Volume2
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Page = "speak" | "listen" | "backends" | "voices" | "log" | "config";
+type Page = "speak" | "listen" | "backends" | "voices" | "log" | "config" | "api";
 
 type Backend = {
   name: string;
@@ -188,6 +189,7 @@ function App() {
           <NavItem page="voices" active={page} onClick={setPage} label="Voices" icon={<Mic />} />
           <NavItem page="log" active={page} onClick={setPage} label="Log" icon={<ClipboardList />} />
           <NavItem page="config" active={page} onClick={setPage} label="Config" icon={<Settings />} />
+          <NavItem page="api" active={page} onClick={setPage} label="API" icon={<Terminal />} />
         </nav>
         <div className="side-status">
           <div className="side-status-row">
@@ -229,6 +231,7 @@ function App() {
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
           {page === "log" && <LogPage activity={activity} />}
           {page === "config" && <ConfigPage backends={backends} onRefresh={refresh} />}
+          {page === "api" && <ApiPage backends={backends} voices={voices} />}
         </section>
       </main>
     </div>
@@ -1005,6 +1008,146 @@ function ConfigBackendGroup({
   );
 }
 
+function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] }) {
+  const baseUrl = "http://127.0.0.1:9000";
+  const enabledTts = backends.filter((item) => item.kind === "tts" && item.enabled).map((item) => item.name);
+  const enabledStt = backends.filter((item) => item.kind === "stt" && item.enabled).map((item) => item.name);
+  const allTts = backends.filter((item) => item.kind === "tts").map((item) => item.name);
+  const allStt = backends.filter((item) => item.kind === "stt").map((item) => item.name);
+  const voiceNames = voices.map((item) => item.name);
+  const sampleTts = enabledTts[0] || allTts[0] || "pocket";
+  const sampleStt = enabledStt[0] || allStt[0] || "parakeet";
+  const sampleVoice = voiceNames[0] || "aria";
+
+  return (
+    <div className="page-grid">
+      <SectionHeader num="01" title="base url" right="swap host for tailscale" />
+      <div className="api-grid">
+        <ApiInfo label="local" value={baseUrl} />
+        <ApiInfo label="ui" value={`${baseUrl}/ui/`} />
+        <ApiInfo label="openapi" value={`${baseUrl}/docs`} />
+        <ApiInfo label="tts models" value={enabledTts.join(", ") || "none enabled"} />
+        <ApiInfo label="stt models" value={enabledStt.join(", ") || "none enabled"} />
+        <ApiInfo label="voices" value={voiceNames.slice(0, 8).join(", ") || "none"} />
+      </div>
+
+      <SectionHeader num="02" title="discovery" />
+      <ApiCode title="Health" code={`curl ${baseUrl}/health`} />
+      <ApiCode title="Models" code={`curl ${baseUrl}/v1/models`} />
+      <ApiCode title="Backends" code={`curl ${baseUrl}/v1/backends`} />
+      <ApiCode title="Voices" code={`curl ${baseUrl}/v1/voices`} />
+
+      <SectionHeader num="03" title="text to speech" />
+      <ApiCode
+        title="Generate speech"
+        code={`curl ${baseUrl}/v1/audio/speech \\
+  -H "content-type: application/json" \\
+  -d '{
+    "model": "${sampleTts}",
+    "input": "Hello from Timbre.",
+    "voice": "${sampleVoice}",
+    "response_format": "wav",
+    "speed": 1.0
+  }' \\
+  --output timbre.wav`}
+      />
+      <ApiNote text="For TTS, model is the backend name. Use pocket or supertonic when enabled. response_format accepts wav, mp3, opus, ogg, or flac." />
+
+      <SectionHeader num="04" title="speech to text" />
+      <ApiCode
+        title="Transcribe audio"
+        code={`curl ${baseUrl}/v1/audio/transcriptions \\
+  -F model=${sampleStt} \\
+  -F file=@sample.wav`}
+      />
+      <ApiNote text="For STT, model is the backend name. Use parakeet or whisper when enabled. Optional form fields include language and prompt." />
+
+      <SectionHeader num="05" title="backend control" />
+      <ApiCode
+        title="Load or unload a backend"
+        code={`curl ${baseUrl}/v1/backends/tts/${sampleTts} \\
+  -H "content-type: application/json" \\
+  -d '{"action":"load"}'
+
+curl ${baseUrl}/v1/backends/stt/${sampleStt} \\
+  -H "content-type: application/json" \\
+  -d '{"action":"unload"}'`}
+      />
+      <ApiCode
+        title="Enable or disable a backend"
+        code={`curl ${baseUrl}/v1/backends/tts/${sampleTts} \\
+  -H "content-type: application/json" \\
+  -d '{"action":"enable"}'
+
+curl ${baseUrl}/v1/backends/stt/${sampleStt} \\
+  -H "content-type: application/json" \\
+  -d '{"action":"disable"}'`}
+      />
+      <ApiNote text="Use /tts/name for text-to-speech backends and /stt/name for speech-to-text backends. load/unload changes runtime memory; enable/disable updates config and rebuilds the manager." />
+
+      <SectionHeader num="06" title="voices and config" />
+      <ApiCode
+        title="Upload a cloned voice"
+        code={`curl ${baseUrl}/v1/voices \\
+  -F name=my_voice \\
+  -F backend=${sampleTts} \\
+  -F precompute=true \\
+  -F file=@reference.wav`}
+      />
+      <ApiCode
+        title="Preview or delete a cloned voice"
+        code={`curl ${baseUrl}/v1/voices/my_voice/reference --output reference.wav
+curl -X DELETE ${baseUrl}/v1/voices/my_voice`}
+      />
+      <ApiCode
+        title="Read or replace config"
+        code={`curl ${baseUrl}/v1/config
+
+curl -X PUT ${baseUrl}/v1/config \\
+  -H "content-type: application/json" \\
+  -d @config.json`}
+      />
+    </div>
+  );
+}
+
+function ApiInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="api-info">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ApiCode({ title, code }: { title: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(code).catch(() => undefined);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <div className="api-card">
+      <div className="api-card-head">
+        <div>{title}</div>
+        <button className="small-btn" onClick={copy}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre>{code}</pre>
+    </div>
+  );
+}
+
+function ApiNote({ text }: { text: string }) {
+  return <div className="api-note">{text}</div>;
+}
+
 function LogPage({ activity }: { activity: ActivityEntry[] }) {
   return (
     <div className="page-grid">
@@ -1561,7 +1704,8 @@ function pageLabel(page: Page) {
     backends: "03 — backends",
     voices: "04 — voices",
     log: "05 — log",
-    config: "06 — config"
+    config: "06 — config",
+    api: "07 — api"
   };
   return labels[page];
 }
