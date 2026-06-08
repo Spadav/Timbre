@@ -48,13 +48,19 @@ class BackendManager:
             self._locks[("stt", name)] = asyncio.Lock()
 
     async def get_tts(self, name: str | None) -> TTSBackend:
-        resolved = name or self.config.tts.default
+        resolved = self.resolve_tts_name(name)
         backend = self.tts.get(resolved)
         if backend is None:
             raise UnknownBackend(f"Unknown TTS backend '{resolved}'. Available: {sorted(self.tts)}")
         async with self._locks[("tts", resolved)]:
             await backend.ensure_loaded()
         return backend
+
+    def resolve_tts_name(self, name: str | None) -> str:
+        return name or self.config.tts.default
+
+    def resolve_tts_voice(self, backend_name: str, voice: str) -> str:
+        return self.config.voices.aliases.get(backend_name, {}).get(voice, voice)
 
     async def get_stt(self, name: str | None) -> STTBackend:
         resolved = name or self.config.stt.default

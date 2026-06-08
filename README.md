@@ -53,6 +53,10 @@ include names such as `pocket` and `supertonic`; STT backends include names
 such as `parakeet` and `whisper`. The actual backend model variant is selected
 from `/v1/models` or the Models page.
 
+Voice aliases are backend-scoped. For example, Timbre can accept
+`{"model":"supertonic","voice":"alloy"}` and resolve that alias to the native
+Supertonic voice configured for it, such as `F1`.
+
 ### Model Management
 
 Models are stored under `~/.config/timbre/models/`.
@@ -140,6 +144,12 @@ curl http://127.0.0.1:9000/v1/voices \
 
 curl http://127.0.0.1:9000/v1/voices/my_voice/reference --output reference.wav
 curl -X DELETE http://127.0.0.1:9000/v1/voices/my_voice
+
+curl http://127.0.0.1:9000/v1/voices/aliases \
+  -H "content-type: application/json" \
+  -d '{"backend":"supertonic","alias":"alloy","target":"F1"}'
+
+curl -X DELETE http://127.0.0.1:9000/v1/voices/aliases/supertonic/alloy
 
 curl http://127.0.0.1:9000/v1/config
 curl -X PUT http://127.0.0.1:9000/v1/config \

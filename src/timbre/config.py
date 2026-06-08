@@ -38,6 +38,7 @@ class BackendGroupConfig:
 @dataclass(slots=True)
 class VoicesConfig:
     dir: Path = CONFIG_DIR / "voices"
+    aliases: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -96,7 +97,18 @@ def default_config() -> TimbreConfig:
                 ),
             },
         ),
-        voices=VoicesConfig(),
+        voices=VoicesConfig(
+            aliases={
+                "supertonic": {
+                    "alloy": "F1",
+                    "echo": "M1",
+                    "fable": "M2",
+                    "nova": "F2",
+                    "onyx": "M3",
+                    "shimmer": "F3",
+                }
+            }
+        ),
     )
 
 
@@ -124,7 +136,10 @@ def parse_config(raw: dict[str, Any]) -> TimbreConfig:
         ),
         tts=_parse_group(raw.get("tts", {}) or {}, defaults.tts),
         stt=_parse_group(raw.get("stt", {}) or {}, defaults.stt),
-        voices=VoicesConfig(dir=_expand_path(voices_raw.get("dir", defaults.voices.dir))),
+        voices=VoicesConfig(
+            dir=_expand_path(voices_raw.get("dir", defaults.voices.dir)),
+            aliases=_parse_voice_aliases(voices_raw.get("aliases", defaults.voices.aliases)),
+        ),
     )
 
 
@@ -148,6 +163,23 @@ def _parse_group(raw: dict[str, Any], defaults: BackendGroupConfig) -> BackendGr
     return BackendGroupConfig(default=str(raw.get("default", defaults.default)), backends=backends)
 
 
+def _parse_voice_aliases(raw: Any) -> dict[str, dict[str, str]]:
+    if not isinstance(raw, dict):
+        return {}
+    aliases: dict[str, dict[str, str]] = {}
+    for backend, backend_aliases in raw.items():
+        if not isinstance(backend_aliases, dict):
+            continue
+        clean_aliases = {
+            str(alias): str(target)
+            for alias, target in backend_aliases.items()
+            if str(alias).strip() and str(target).strip()
+        }
+        if clean_aliases:
+            aliases[str(backend)] = clean_aliases
+    return aliases
+
+
 def dump_config(config: TimbreConfig) -> dict[str, Any]:
     return {
         "server": {
@@ -157,7 +189,7 @@ def dump_config(config: TimbreConfig) -> dict[str, Any]:
         },
         "tts": _dump_group(config.tts),
         "stt": _dump_group(config.stt),
-        "voices": {"dir": str(config.voices.dir)},
+        "voices": {"dir": str(config.voices.dir), "aliases": config.voices.aliases},
     }
 
 

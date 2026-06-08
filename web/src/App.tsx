@@ -29,7 +29,8 @@ type Backend = {
 type Voice = {
   name: string;
   backend?: string;
-  type: "preset" | "cloned";
+  type: "preset" | "cloned" | "alias";
+  target?: string;
   audio_path?: string | null;
   prepared_backends?: string[];
 };
@@ -84,6 +85,7 @@ type AppConfig = {
   stt: ConfigGroup;
   voices: {
     dir: string;
+    aliases: Record<string, Record<string, string>>;
   };
 };
 
@@ -132,6 +134,30 @@ const api = {
       throw new Error(body.detail || "config save failed");
     }
     return res.json();
+  },
+  async setVoiceAlias(backend: string, alias: string, target: string): Promise<Voice[]> {
+    const res = await fetch("/v1/voices/aliases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ backend, alias, target })
+    });
+    if (!res.ok) {
+      const body = await safeJson(res);
+      throw new Error(body.detail || "voice alias save failed");
+    }
+    const body = await res.json();
+    return body.data;
+  },
+  async deleteVoiceAlias(backend: string, alias: string): Promise<Voice[]> {
+    const res = await fetch(`/v1/voices/aliases/${encodeURIComponent(backend)}/${encodeURIComponent(alias)}`, {
+      method: "DELETE"
+    });
+    if (!res.ok) {
+      const body = await safeJson(res);
+      throw new Error(body.detail || "voice alias delete failed");
+    }
+    const body = await res.json();
+    return body.data;
   },
   async backendAction(kind: Backend["kind"], name: string, action: "load" | "unload" | "enable" | "disable"): Promise<Backend[]> {
     const res = await fetch(`/v1/backends/${kind}/${encodeURIComponent(name)}`, {
@@ -330,7 +356,9 @@ function SpeakPage({
     const cloned = voices.filter(
       (item) => item.type === "cloned" && item.prepared_backends?.includes(backend)
     );
-    const presets = voices.filter((item) => item.type === "preset" && item.backend === backend);
+    const presets = voices.filter(
+      (item) => (item.type === "preset" || item.type === "alias") && item.backend === backend
+    );
     return [...cloned, ...presets].map((item) => item.name);
   }, [backend, voices]);
 
@@ -707,13 +735,22 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   const [name, setName] = useState("");
   const [backend, setBackend] = useState("pocket");
   const [file, setFile] = useState<File | null>(null);
+  const [aliasBackend, setAliasBackend] = useState("supertonic");
+  const [aliasName, setAliasName] = useState("");
+  const [aliasTarget, setAliasTarget] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aliasBusy, setAliasBusy] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState("");
   const [activePreview, setActivePreview] = useState("");
   const [error, setError] = useState("");
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const cloned = voices.filter((voice) => voice.type === "cloned");
   const presets = voices.filter((voice) => voice.type === "preset");
+  const aliases = voices.filter((voice) => voice.type === "alias");
+  const ttsBackends = [...new Set(voices.filter((voice) => voice.backend).map((voice) => voice.backend as string))];
+  const aliasTargetOptions = voices
+    .filter((voice) => voice.backend === aliasBackend && voice.type !== "alias")
+    .map((voice) => voice.name);
 
   useEffect(() => {
     const audio = previewAudioRef.current;
@@ -756,6 +793,34 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   async function remove(voice: string) {
     await fetch(`/v1/voices/${encodeURIComponent(voice)}`, { method: "DELETE" });
     onRefresh();
+  }
+
+  async function saveAlias(event: FormEvent) {
+    event.preventDefault();
+    if (!aliasBackend || !aliasName.trim() || !aliasTarget.trim()) return;
+    setAliasBusy(true);
+    setError("");
+    try {
+      await api.setVoiceAlias(aliasBackend, aliasName.trim(), aliasTarget.trim());
+      setAliasName("");
+      setAliasTarget("");
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "alias save failed");
+    } finally {
+      setAliasBusy(false);
+    }
+  }
+
+  async function removeAlias(voice: Voice) {
+    if (!voice.backend) return;
+    setError("");
+    try {
+      await api.deleteVoiceAlias(voice.backend, voice.name);
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "alias delete failed");
+    }
   }
 
   async function preview(voice: Voice) {
@@ -824,7 +889,66 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
       </form>
       {error && <div className="error-line">{error}</div>}
 
-      <SectionHeader num="02" title="cloned" right={`${cloned.length}`} />
+      <SectionHeader num="02" title="aliases" right={`${aliases.length}`} />
+      <form className="clone-form" onSubmit={saveAlias}>
+        <select value={aliasBackend} onChange={(event) => setAliasBackend(event.target.value)}>
+          {(ttsBackends.length ? ttsBackends : ["pocket", "supertonic"]).map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <input
+          value={aliasName}
+          onChange={(event) => setAliasName(event.target.value)}
+          placeholder="alias name"
+        />
+        <input
+          list="voice-targets"
+          value={aliasTarget}
+          onChange={(event) => setAliasTarget(event.target.value)}
+          placeholder="target voice"
+        />
+        <datalist id="voice-targets">
+          {aliasTargetOptions.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+        <button className="primary-btn" disabled={aliasBusy || !aliasName || !aliasTarget}>
+          {aliasBusy ? "Saving" : "Save alias"}
+        </button>
+      </form>
+      <div className="voice-grid">
+        {aliases.map((voice) => (
+          <div className="voice-card" key={`${voice.backend}-${voice.name}`}>
+            <div className="voice-name">{voice.name}</div>
+            <div className="voice-meta">
+              {voice.backend} -&gt; {voice.target}
+            </div>
+            <div className="voice-actions">
+              <button
+                className="small-btn"
+                onClick={() => preview(voice)}
+                disabled={loadingPreview !== ""}
+                title="Preview"
+              >
+                {activePreview === `${voice.backend}:${voice.name}` ? <Square size={13} /> : <Play size={13} />}
+                {loadingPreview === `${voice.backend}:${voice.name}`
+                  ? "..."
+                  : activePreview === `${voice.backend}:${voice.name}`
+                    ? "Stop"
+                    : "Preview"}
+              </button>
+              <button className="small-btn danger" onClick={() => removeAlias(voice)}>
+                <Trash2 size={13} />
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <SectionHeader num="03" title="cloned" right={`${cloned.length}`} />
       <div className="voice-grid">
         {cloned.map((voice) => (
           <div className="voice-card" key={voice.name}>
@@ -853,7 +977,7 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
         ))}
       </div>
 
-      <SectionHeader num="03" title="presets" right={`${presets.length}`} />
+      <SectionHeader num="04" title="presets" right={`${presets.length}`} />
       <div className="voice-grid">
         {presets.map((voice) => (
           <div className="voice-card" key={`${voice.backend}-${voice.name}`}>
@@ -1129,7 +1253,13 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
   const voiceNames = voices.map((item) => item.name);
   const sampleTts = enabledTts[0] || allTts[0] || "pocket";
   const sampleStt = enabledStt[0] || allStt[0] || "parakeet";
-  const sampleVoice = voiceNames[0] || "aria";
+  const sampleVoices = voices.filter(
+    (item) =>
+      item.backend === sampleTts ||
+      (item.type === "cloned" && item.prepared_backends?.includes(sampleTts))
+  );
+  const sampleVoice = sampleVoices[0]?.name || "default";
+  const sampleAliasTarget = sampleVoices.find((item) => item.type !== "alias")?.name || sampleVoice;
 
   return (
     <div className="page-grid">
@@ -1213,6 +1343,15 @@ curl ${baseUrl}/v1/backends/stt/${sampleStt} \\
         code={`curl ${baseUrl}/v1/voices/my_voice/reference --output reference.wav
 curl -X DELETE ${baseUrl}/v1/voices/my_voice`}
       />
+      <ApiCode
+        title="Set or delete a voice alias"
+        code={`curl ${baseUrl}/v1/voices/aliases \\
+  -H "content-type: application/json" \\
+  -d '{"backend":"${sampleTts}","alias":"friendly","target":"${sampleAliasTarget}"}'
+
+curl -X DELETE ${baseUrl}/v1/voices/aliases/${sampleTts}/friendly`}
+      />
+      <ApiNote text="Aliases are backend-scoped. A request can send voice=friendly while Timbre resolves it to the configured target voice before calling that backend." />
       <ApiCode
         title="Read or replace config"
         code={`curl ${baseUrl}/v1/config

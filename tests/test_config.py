@@ -1,10 +1,11 @@
-from timbre.config import parse_config
+from timbre.config import dump_config, parse_config
 
 
 def test_project_defaults_use_timbre_identity() -> None:
     config = parse_config({})
     assert config.server.port == 9000
     assert str(config.voices.dir).endswith(".config/timbre/voices")
+    assert config.voices.aliases["supertonic"]["alloy"] == "F1"
 
 
 def test_config_overrides_port_and_backend_options() -> None:
@@ -24,3 +25,9 @@ def test_supertonic_default_model_is_configurable() -> None:
     supertonic = config.tts.backends["supertonic"]
     assert supertonic.options["model"] == "supertonic-3"
     assert supertonic.options["steps"] == 8
+
+
+def test_voice_aliases_round_trip() -> None:
+    config = parse_config({"voices": {"aliases": {"pocket": {"narrator": "alba"}}}})
+    assert config.voices.aliases == {"pocket": {"narrator": "alba"}}
+    assert dump_config(config)["voices"]["aliases"]["pocket"]["narrator"] == "alba"

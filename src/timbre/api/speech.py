@@ -27,7 +27,9 @@ class SpeechRequest(BaseModel):
 async def speech(payload: SpeechRequest, request: Request) -> Response:
     manager = request.app.state.manager
     try:
+        backend_name = manager.resolve_tts_name(payload.model)
         backend = await manager.get_tts(payload.model)
+        voice = manager.resolve_tts_voice(backend_name, payload.voice)
         opts: dict[str, Any] = {"response_format": "wav"}
         if payload.speed is not None:
             opts["speed"] = payload.speed
@@ -37,7 +39,7 @@ async def speech(payload: SpeechRequest, request: Request) -> Response:
             opts["lang"] = payload.lang
         if payload.steps is not None:
             opts["steps"] = payload.steps
-        audio = await backend.synthesize(payload.input, payload.voice, **opts)
+        audio = await backend.synthesize(payload.input, voice, **opts)
         fmt = payload.response_format.lower()
         if fmt != "wav":
             audio = convert_audio(audio, "wav", fmt)
@@ -46,4 +48,3 @@ async def speech(payload: SpeechRequest, request: Request) -> Response:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except BackendUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-

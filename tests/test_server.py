@@ -1,8 +1,20 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from timbre.backends.base import TTSBackend
 from timbre.config import default_config
 from timbre.server import create_app
+
+
+class RecordingTTS(TTSBackend):
+    name = "recording"
+
+    async def _load(self) -> None:
+        self.config["loaded"] = True
+
+    async def synthesize(self, text: str, voice: str, **opts) -> bytes:
+        self.config["last_voice"] = voice
+        return b"RIFF....WAVE"
 
 
 @pytest.mark.asyncio
@@ -84,3 +96,51 @@ async def test_cloned_voice_reference_is_served(tmp_path) -> None:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("audio/wav")
         assert response.content == b"RIFFtestWAVE"
+
+
+@pytest.mark.asyncio
+async def test_voice_aliases_are_listed_and_mutable(tmp_path) -> None:
+    config = default_config()
+    config.tts.backends["pocket"].enabled = False
+    config.tts.backends["supertonic"].enabled = False
+    app = create_app(config)
+    app.state.config_path = tmp_path / "config.yaml"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v1/voices")
+        assert response.status_code == 200
+        aliases = [item for item in response.json()["data"] if item["type"] == "alias"]
+        assert {"name": "alloy", "backend": "supertonic", "target": "F1", "type": "alias"} in aliases
+
+        response = await client.post(
+            "/v1/voices/aliases",
+            json={"backend": "pocket", "alias": "reader", "target": "alba"},
+        )
+        assert response.status_code == 200
+        aliases = [item for item in response.json()["data"] if item["type"] == "alias"]
+        assert {"name": "reader", "backend": "pocket", "target": "alba", "type": "alias"} in aliases
+
+        response = await client.delete("/v1/voices/aliases/pocket/reader")
+        assert response.status_code == 200
+        aliases = [item for item in response.json()["data"] if item["type"] == "alias"]
+        assert not any(item["name"] == "reader" and item["backend"] == "pocket" for item in aliases)
+
+
+@pytest.mark.asyncio
+async def test_speech_resolves_voice_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    import timbre.manager as manager_module
+
+    monkeypatch.setitem(manager_module.TTS_BACKENDS, "recording", RecordingTTS)
+    config = default_config()
+    config.tts.default = "recording"
+    config.tts.backends = {"recording": config.tts.backends["pocket"]}
+    config.voices.aliases = {"recording": {"friendly": "native"}}
+    app = create_app(config)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/v1/audio/speech",
+            json={"model": "recording", "input": "hello", "voice": "friendly"},
+        )
+        assert response.status_code == 200
+        assert app.state.manager.tts["recording"].config["last_voice"] == "native"

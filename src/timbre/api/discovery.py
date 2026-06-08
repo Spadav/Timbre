@@ -25,6 +25,12 @@ class ModelAction(BaseModel):
     action: Literal["download", "set_active"]
 
 
+class VoiceAliasPayload(BaseModel):
+    backend: str
+    alias: str
+    target: str
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "timbre"}
@@ -89,7 +95,12 @@ async def voices(request: Request) -> dict[str, object]:
         for voice in voices_for_backend
         if voice not in cloned_names
     ]
-    return {"object": "list", "data": presets + cloned}
+    aliases = [
+        {"name": alias, "backend": backend, "target": target, "type": "alias"}
+        for backend, backend_aliases in request.app.state.config.voices.aliases.items()
+        for alias, target in backend_aliases.items()
+    ]
+    return {"object": "list", "data": aliases + presets + cloned}
 
 
 def _backend_from_cache(filename: str) -> str:
@@ -117,6 +128,34 @@ async def update_config(payload: dict[str, Any], request: Request) -> dict[str, 
         "path": str(getattr(request.app.state, "config_path", CONFIG_PATH)),
         "config": dump_config(config),
     }
+
+
+@router.post("/v1/voices/aliases")
+async def set_voice_alias(payload: VoiceAliasPayload, request: Request) -> dict[str, object]:
+    backend = payload.backend.strip()
+    alias = payload.alias.strip()
+    target = payload.target.strip()
+    if not backend or not alias or not target:
+        raise HTTPException(status_code=400, detail="backend, alias, and target are required")
+    if backend not in request.app.state.config.tts.backends:
+        raise HTTPException(status_code=404, detail=f"Unknown TTS backend '{backend}'.")
+    config = request.app.state.config
+    config.voices.aliases.setdefault(backend, {})[alias] = target
+    await _replace_config(request, config)
+    return await voices(request)
+
+
+@router.delete("/v1/voices/aliases/{backend}/{alias}")
+async def delete_voice_alias(backend: str, alias: str, request: Request) -> dict[str, object]:
+    config = request.app.state.config
+    backend_aliases = config.voices.aliases.get(backend)
+    if not backend_aliases or alias not in backend_aliases:
+        raise HTTPException(status_code=404, detail=f"Unknown voice alias '{backend}/{alias}'.")
+    del backend_aliases[alias]
+    if not backend_aliases:
+        del config.voices.aliases[backend]
+    await _replace_config(request, config)
+    return await voices(request)
 
 
 @router.post("/v1/backends/{kind}/{name}")
