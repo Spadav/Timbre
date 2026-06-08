@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
-from timbre.config import CONFIG_PATH, dump_config, parse_config
+from timbre.config import CONFIG_PATH, BackendGroupConfig, TimbreConfig, dump_config, parse_config
+from timbre.errors import UnknownBackend
 from timbre.manager import BackendManager
 from timbre.voices.store import VoiceStore
 
 router = APIRouter()
+
+
+class BackendAction(BaseModel):
+    action: Literal["load", "unload", "enable", "disable"]
 
 
 @router.get("/health")
@@ -82,6 +88,36 @@ async def update_config(payload: dict[str, Any], request: Request) -> dict[str, 
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    await _replace_config(request, config)
+
+    return {
+        "path": str(getattr(request.app.state, "config_path", CONFIG_PATH)),
+        "config": dump_config(config),
+    }
+
+
+@router.post("/v1/backends/{kind}/{name}")
+async def control_backend(
+    kind: Literal["tts", "stt"],
+    name: str,
+    payload: BackendAction,
+    request: Request,
+) -> dict[str, list[dict[str, object]]]:
+    manager = request.app.state.manager
+    try:
+        if payload.action == "load":
+            await manager.load_backend(kind, name)
+        elif payload.action == "unload":
+            await manager.unload_backend(kind, name)
+        else:
+            config = _config_with_backend_enabled(request.app.state.config, kind, name, payload.action == "enable")
+            await _replace_config(request, config)
+    except UnknownBackend as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await backends(request)
+
+
+async def _replace_config(request: Request, config: TimbreConfig) -> None:
     config_path = Path(getattr(request.app.state, "config_path", CONFIG_PATH))
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w", encoding="utf-8") as handle:
@@ -95,4 +131,23 @@ async def update_config(payload: dict[str, Any], request: Request) -> dict[str, 
     request.app.state.voice_store = VoiceStore(Path(config.voices.dir))
     manager.start_sweeper()
 
-    return {"path": str(config_path), "config": dump_config(config)}
+
+def _config_with_backend_enabled(
+    config: TimbreConfig, kind: Literal["tts", "stt"], name: str, enabled: bool
+) -> TimbreConfig:
+    group = _group_for_kind(config, kind)
+    backend = group.backends.get(name)
+    if backend is None:
+        raise UnknownBackend(f"Unknown {kind.upper()} backend '{name}'.")
+    backend.enabled = enabled
+    if not enabled and group.default == name:
+        replacement = next(
+            (candidate for candidate, cfg in group.backends.items() if candidate != name and cfg.enabled),
+            name,
+        )
+        group.default = replacement
+    return config
+
+
+def _group_for_kind(config: TimbreConfig, kind: Literal["tts", "stt"]) -> BackendGroupConfig:
+    return config.tts if kind == "tts" else config.stt

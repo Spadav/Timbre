@@ -112,6 +112,19 @@ const api = {
       throw new Error(body.detail || "config save failed");
     }
     return res.json();
+  },
+  async backendAction(kind: Backend["kind"], name: string, action: "load" | "unload" | "enable" | "disable"): Promise<Backend[]> {
+    const res = await fetch(`/v1/backends/${kind}/${encodeURIComponent(name)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    if (!res.ok) {
+      const body = await safeJson(res);
+      throw new Error(body.detail || `backend ${action} failed`);
+    }
+    const body = await res.json();
+    return body.data;
   }
 };
 
@@ -212,7 +225,7 @@ function App() {
             />
           )}
           {page === "listen" && <ListenPage backends={backends} onActivity={addActivity} />}
-          {page === "backends" && <BackendsPage backends={backends} />}
+          {page === "backends" && <BackendsPage backends={backends} onRefresh={refresh} />}
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
           {page === "log" && <LogPage activity={activity} />}
           {page === "config" && <ConfigPage backends={backends} onRefresh={refresh} />}
@@ -257,7 +270,7 @@ function SpeakPage({
   onActivity: (entry: Omit<ActivityEntry, "id" | "time">) => void;
   onRefresh: () => void;
 }) {
-  const ttsBackends = backends.filter((backend) => backend.kind === "tts");
+  const ttsBackends = backends.filter((backend) => backend.kind === "tts" && backend.enabled);
   const [text, setText] = useState("Hello, this is Timbre speaking through a local voice gateway.");
   const [backend, setBackend] = useState("pocket");
   const [voice, setVoice] = useState("aria");
@@ -416,7 +429,7 @@ function ListenPage({
   backends: Backend[];
   onActivity: (entry: Omit<ActivityEntry, "id" | "time">) => void;
 }) {
-  const sttBackends = backends.filter((backend) => backend.kind === "stt");
+  const sttBackends = backends.filter((backend) => backend.kind === "stt" && backend.enabled);
   const [backend, setBackend] = useState("parakeet");
   const [file, setFile] = useState<File | null>(null);
   const [recording, setRecording] = useState(false);
@@ -559,19 +572,19 @@ function ListenPage({
   );
 }
 
-function BackendsPage({ backends }: { backends: Backend[] }) {
+function BackendsPage({ backends, onRefresh }: { backends: Backend[]; onRefresh: () => void }) {
   const tts = backends.filter((item) => item.kind === "tts");
   const stt = backends.filter((item) => item.kind === "stt");
   return (
     <div className="page-grid">
       <div className="stats-row">
-        <Metric label="tts" value={String(tts.length)} />
-        <Metric label="stt" value={String(stt.length)} />
+        <Metric label="enabled" value={String(backends.filter((item) => item.enabled).length)} />
+        <Metric label="disabled" value={String(backends.filter((item) => !item.enabled).length)} />
         <Metric label="total" value={String(backends.length)} />
         <Metric label="loaded" value={String(backends.filter((item) => item.loaded).length)} />
       </div>
-      <BackendGroup title="text to speech" backends={tts} />
-      <BackendGroup title="speech to text" backends={stt} />
+      <BackendGroup title="text to speech" backends={tts} onRefresh={onRefresh} />
+      <BackendGroup title="speech to text" backends={stt} onRefresh={onRefresh} />
     </div>
   );
 }
@@ -1148,26 +1161,81 @@ function applyGlitch(ctx: CanvasRenderingContext2D, width: number, height: numbe
   }
 }
 
-function BackendGroup({ title, backends }: { title: string; backends: Backend[] }) {
+function BackendGroup({
+  title,
+  backends,
+  onRefresh
+}: {
+  title: string;
+  backends: Backend[];
+  onRefresh: () => void;
+}) {
+  const [busyKey, setBusyKey] = useState("");
+  const [error, setError] = useState("");
+
+  async function run(backend: Backend, action: "load" | "unload" | "enable" | "disable") {
+    setBusyKey(`${backend.kind}.${backend.name}.${action}`);
+    setError("");
+    try {
+      await api.backendAction(backend.kind, backend.name, action);
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${action} failed`);
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   return (
     <div>
       <SectionHeader num={title.startsWith("text") ? "01" : "02"} title={title} />
       <div className="backend-list">
         {backends.map((backend) => (
-          <div className="backend-card" key={backend.name}>
+          <div className={`backend-card ${backend.enabled ? "" : "backend-disabled"}`} key={backend.name}>
             <div>
               <div className="backend-title">{backend.name}</div>
               <div className="backend-meta">
                 {backend.device} · TTL: {backend.ttl === 0 ? "keep warm" : `${backend.ttl}s`}
               </div>
             </div>
-            <div className={backend.loaded ? "backend-state loaded" : "backend-state idle"}>
-              <span className={backend.loaded ? "dot-g" : "dot-r"} />
-              {backend.loaded ? "loaded" : "idle"}
+            <div className="backend-right">
+              <div className={backend.enabled ? "backend-state loaded" : "backend-state idle"}>
+                <span className={backend.enabled ? "dot-g" : "dot-r"} />
+                {backend.enabled ? "enabled" : "disabled"}
+              </div>
+              <div className={backend.loaded ? "backend-state loaded" : "backend-state idle"}>
+                <span className={backend.loaded ? "dot-g" : "dot-r"} />
+                {backend.loaded ? "loaded" : "cold"}
+              </div>
+              <div className="backend-actions">
+                <button
+                  className="small-btn"
+                  onClick={() => run(backend, backend.enabled ? "disable" : "enable")}
+                  disabled={busyKey !== ""}
+                >
+                  {busyKey === `${backend.kind}.${backend.name}.${backend.enabled ? "disable" : "enable"}`
+                    ? "..."
+                    : backend.enabled
+                      ? "Disable"
+                      : "Enable"}
+                </button>
+                <button
+                  className="small-btn"
+                  onClick={() => run(backend, backend.loaded ? "unload" : "load")}
+                  disabled={busyKey !== "" || !backend.enabled}
+                >
+                  {busyKey === `${backend.kind}.${backend.name}.${backend.loaded ? "unload" : "load"}`
+                    ? "..."
+                    : backend.loaded
+                      ? "Unload"
+                      : "Load"}
+                </button>
+              </div>
             </div>
           </div>
         ))}
       </div>
+      {error && <div className="error-line backend-error">{error}</div>}
     </div>
   );
 }

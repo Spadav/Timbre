@@ -735,6 +735,10 @@ button {
   gap: 16px;
 }
 
+.backend-disabled {
+  opacity: 0.64;
+}
+
 .backend-title,
 .voice-name {
   font-family: var(--fm);
@@ -766,6 +770,34 @@ button {
 
 .backend-state.idle {
   color: var(--txt-s);
+}
+
+.backend-right {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 190px;
+}
+
+.backend-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.backend-actions .small-btn {
+  min-width: 74px;
+  justify-content: center;
+}
+
+.small-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.backend-error {
+  margin-top: 10px;
 }
 
 .clone-form {
@@ -990,6 +1022,15 @@ button {
   .metrics-row,
   .stats-row {
     grid-template-columns: 1fr;
+  }
+
+  .backend-card {
+    display: grid;
+  }
+
+  .backend-right {
+    justify-items: start;
+    min-width: 0;
   }
 
   .speak-layout {

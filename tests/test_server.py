@@ -17,7 +17,9 @@ async def test_health_and_backends_respond_without_loading_models() -> None:
         transport=ASGITransport(app=create_app(config)), base_url="http://test"
     ) as client:
         assert (await client.get("/health")).json()["status"] == "ok"
-        assert (await client.get("/v1/backends")).json() == {"data": []}
+        states = (await client.get("/v1/backends")).json()["data"]
+        assert len(states) == 4
+        assert all(item["enabled"] is False and item["loaded"] is False for item in states)
 
 
 @pytest.mark.asyncio
@@ -44,3 +46,25 @@ async def test_config_is_exposed() -> None:
         body = response.json()
         assert body["config"]["server"]["port"] == 9000
         assert "pocket" in body["config"]["tts"]["backends"]
+
+
+@pytest.mark.asyncio
+async def test_backend_enable_disable_updates_config(tmp_path) -> None:
+    config = default_config()
+    config.tts.backends["pocket"].enabled = True
+    app = create_app(config)
+    app.state.config_path = tmp_path / "config.yaml"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/v1/backends/tts/pocket", json={"action": "disable"})
+        assert response.status_code == 200
+        states = response.json()["data"]
+        pocket = next(item for item in states if item["kind"] == "tts" and item["name"] == "pocket")
+        assert pocket["enabled"] is False
+        assert pocket["loaded"] is False
+
+        response = await client.post("/v1/backends/tts/pocket", json={"action": "enable"})
+        assert response.status_code == 200
+        states = response.json()["data"]
+        pocket = next(item for item in states if item["kind"] == "tts" and item["name"] == "pocket")
+        assert pocket["enabled"] is True

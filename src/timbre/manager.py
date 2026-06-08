@@ -67,15 +67,53 @@ class BackendManager:
 
     def list_states(self) -> list[BackendState]:
         states: list[BackendState] = []
-        for name, backend in self.tts.items():
+        for name, backend_config in self.config.tts.backends.items():
+            backend = self.tts.get(name)
             states.append(
-                BackendState(name, "tts", True, backend.loaded, self._tts_ttls[name], backend.config["device"])
+                BackendState(
+                    name,
+                    "tts",
+                    backend_config.enabled,
+                    backend.loaded if backend else False,
+                    backend_config.ttl,
+                    backend_config.device,
+                )
             )
-        for name, backend in self.stt.items():
+        for name, backend_config in self.config.stt.backends.items():
+            backend = self.stt.get(name)
             states.append(
-                BackendState(name, "stt", True, backend.loaded, self._stt_ttls[name], backend.config["device"])
+                BackendState(
+                    name,
+                    "stt",
+                    backend_config.enabled,
+                    backend.loaded if backend else False,
+                    backend_config.ttl,
+                    backend_config.device,
+                )
             )
         return states
+
+    async def load_backend(self, kind: str, name: str) -> None:
+        if kind == "tts":
+            await self.get_tts(name)
+            return
+        if kind == "stt":
+            await self.get_stt(name)
+            return
+        raise UnknownBackend(f"Unknown backend kind '{kind}'.")
+
+    async def unload_backend(self, kind: str, name: str) -> None:
+        if kind == "tts":
+            backend = self.tts.get(name)
+        elif kind == "stt":
+            backend = self.stt.get(name)
+        else:
+            raise UnknownBackend(f"Unknown backend kind '{kind}'.")
+        if backend is None:
+            raise UnknownBackend(f"Unknown {kind.upper()} backend '{name}'.")
+        async with self._locks[(kind, name)]:
+            await backend.unload()
+        self._after_unload()
 
     def model_records(self) -> list[dict[str, Any]]:
         return [
