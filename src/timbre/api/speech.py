@@ -18,6 +18,9 @@ class SpeechRequest(BaseModel):
     voice: str = "default"
     response_format: str = "wav"
     speed: float | None = None
+    language: str | None = None
+    lang: str | None = None
+    steps: int | None = None
 
 
 @router.post("/v1/audio/speech")
@@ -28,6 +31,12 @@ async def speech(payload: SpeechRequest, request: Request) -> Response:
         opts: dict[str, Any] = {"response_format": "wav"}
         if payload.speed is not None:
             opts["speed"] = payload.speed
+        if payload.language is not None:
+            opts["lang"] = payload.language
+        if payload.lang is not None:
+            opts["lang"] = payload.lang
+        if payload.steps is not None:
+            opts["steps"] = payload.steps
         audio = await backend.synthesize(payload.input, payload.voice, **opts)
         fmt = payload.response_format.lower()
         if fmt != "wav":
@@ -37,5 +46,4 @@ async def speech(payload: SpeechRequest, request: Request) -> Response:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except BackendUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-
 

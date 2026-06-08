@@ -61,12 +61,15 @@ curl http://127.0.0.1:9000/v1/audio/speech \
     "input": "Hello from Timbre.",
     "voice": "aria",
     "response_format": "wav",
-    "speed": 1.0
+    "speed": 1.0,
+    "language": "en",
+    "steps": 8
   }' \
   --output timbre.wav
 ```
 
-`response_format` accepts `wav`, `mp3`, `opus`, `ogg`, or `flac`.
+`response_format` accepts `wav`, `mp3`, `opus`, `ogg`, or `flac`. `language`
+and `steps` are backend-specific fields used by Supertonic.
 
 ### Speech to Text
 

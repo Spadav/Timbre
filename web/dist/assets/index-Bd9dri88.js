@@ -13,9 +13,11 @@ Error generating stack: `+a.message+`
     "input": "Hello from Timbre.",
     "voice": "${R}",
     "response_format": "wav",
-    "speed": 1.0
+    "speed": 1.0,
+    "language": "en",
+    "steps": 8
   }' \\
-  --output timbre.wav`}),f.jsx(zf,{text:"For TTS, model is the backend name. Use pocket or supertonic when enabled. response_format accepts wav, mp3, opus, ogg, or flac."}),f.jsx(Bl,{num:"04",title:"speech to text"}),f.jsx(Dt,{title:"Transcribe audio",code:`curl ${h}/v1/audio/transcriptions \\
+  --output timbre.wav`}),f.jsx(zf,{text:"For TTS, model is the backend name. Use pocket or supertonic when enabled. response_format accepts wav, mp3, opus, ogg, or flac. language and steps are backend-specific fields used by Supertonic."}),f.jsx(Bl,{num:"04",title:"speech to text"}),f.jsx(Dt,{title:"Transcribe audio",code:`curl ${h}/v1/audio/transcriptions \\
   -F model=${p} \\
   -F file=@sample.wav`}),f.jsx(zf,{text:"For STT, model is the backend name. Use parakeet or whisper when enabled. Optional form fields include language and prompt."}),f.jsx(Bl,{num:"05",title:"backend control"}),f.jsx(Dt,{title:"Load or unload a backend",code:`curl ${h}/v1/backends/tts/${g} \\
   -H "content-type: application/json" \\

@@ -15,6 +15,7 @@ class SupertonicBackend(TTSBackend):
     def __init__(self, config: dict[str, Any], voices_dir: str | None = None) -> None:
         super().__init__(config, voices_dir)
         self._engine: Any = None
+        self._voice_cache: dict[str, Any] = {}
 
     async def _load(self) -> None:
         def load() -> Any:
@@ -27,19 +28,27 @@ class SupertonicBackend(TTSBackend):
             for attr in ("TTS", "Supertonic", "SupertonicTTS"):
                 if hasattr(supertonic, attr):
                     cls = getattr(supertonic, attr)
-                    kwargs = {}
+                    kwargs = {
+                        "model": self.config.get("model", "supertonic-3"),
+                        "auto_download": bool(self.config.get("auto_download", True)),
+                    }
                     if self.config.get("model_path"):
                         kwargs["model_dir"] = self.config["model_path"]
+                    if self.config.get("intra_op_num_threads") is not None:
+                        kwargs["intra_op_num_threads"] = int(self.config["intra_op_num_threads"])
+                    if self.config.get("inter_op_num_threads") is not None:
+                        kwargs["inter_op_num_threads"] = int(self.config["inter_op_num_threads"])
                     return cls(**_filter_constructor_kwargs(cls, kwargs))
             raise BackendUnavailable("Supertonic is installed, but no supported engine class was found.")
 
         self._engine = await asyncio.to_thread(load)
+        self._cache_builtin_voices()
 
     async def synthesize(self, text: str, voice: str, **opts: Any) -> bytes:
         await self.ensure_loaded()
 
         def run() -> bytes:
-            style = _style_for_voice(self._engine, voice, self.voices_dir)
+            style = self._style_for_voice(voice)
             kwargs = {
                 "voice_style": style,
                 "total_steps": int(opts.get("steps", self.config.get("steps", 8))),
@@ -53,10 +62,23 @@ class SupertonicBackend(TTSBackend):
 
     async def _unload(self) -> None:
         self._engine = None
+        self._voice_cache.clear()
 
     @property
     def voices(self) -> list[str]:
         return ["M1", "F1", "default"]
+
+    def _cache_builtin_voices(self) -> None:
+        for voice in self.voices:
+            try:
+                self._voice_cache[voice] = _style_for_voice(self._engine, voice, self.voices_dir)
+            except BackendUnavailable:
+                continue
+
+    def _style_for_voice(self, voice: str) -> Any:
+        if voice not in self._voice_cache:
+            self._voice_cache[voice] = _style_for_voice(self._engine, voice, self.voices_dir)
+        return self._voice_cache[voice]
 
 
 def _filter_constructor_kwargs(cls: Any, kwargs: dict[str, Any]) -> dict[str, Any]:

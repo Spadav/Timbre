@@ -1047,11 +1047,13 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
     "input": "Hello from Timbre.",
     "voice": "${sampleVoice}",
     "response_format": "wav",
-    "speed": 1.0
+    "speed": 1.0,
+    "language": "en",
+    "steps": 8
   }' \\
   --output timbre.wav`}
       />
-      <ApiNote text="For TTS, model is the backend name. Use pocket or supertonic when enabled. response_format accepts wav, mp3, opus, ogg, or flac." />
+      <ApiNote text="For TTS, model is the backend name. Use pocket or supertonic when enabled. response_format accepts wav, mp3, opus, ogg, or flac. language and steps are backend-specific fields used by Supertonic." />
 
       <SectionHeader num="04" title="speech to text" />
       <ApiCode

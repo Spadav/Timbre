@@ -63,7 +63,11 @@ def default_config() -> TimbreConfig:
                     enabled=True,
                     device="cpu",
                     ttl=300,
-                    options={"model_path": str(CONFIG_DIR / "models" / "supertonic")},
+                    options={
+                        "model": "supertonic-3",
+                        "model_path": str(CONFIG_DIR / "models" / "supertonic"),
+                        "steps": 8,
+                    },
                 ),
             },
         ),
