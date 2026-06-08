@@ -80,7 +80,7 @@ function App() {
     setActivity((current) => [
       {
         ...entry,
-        id: crypto.randomUUID(),
+        id: makeId(),
         time: new Date().toLocaleTimeString([], { hour12: false })
       },
       ...current
@@ -1031,6 +1031,10 @@ function truncate(value: string, max: number) {
 
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
+}
+
+function makeId() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export default App;
