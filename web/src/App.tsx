@@ -594,11 +594,24 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   const [backend, setBackend] = useState("pocket");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [previewing, setPreviewing] = useState("");
+  const [loadingPreview, setLoadingPreview] = useState("");
+  const [activePreview, setActivePreview] = useState("");
   const [error, setError] = useState("");
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const cloned = voices.filter((voice) => voice.type === "cloned");
   const presets = voices.filter((voice) => voice.type === "preset");
+
+  useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    const clear = () => setActivePreview("");
+    audio.addEventListener("ended", clear);
+    audio.addEventListener("pause", clear);
+    return () => {
+      audio.removeEventListener("ended", clear);
+      audio.removeEventListener("pause", clear);
+    };
+  }, []);
 
   async function upload(event: FormEvent) {
     event.preventDefault();
@@ -633,7 +646,13 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
 
   async function preview(voice: Voice) {
     const key = voice.type === "cloned" ? `clone:${voice.name}` : `${voice.backend}:${voice.name}`;
-    setPreviewing(key);
+    const audio = previewAudioRef.current;
+    if (activePreview === key && audio && !audio.paused) {
+      stopPreview(audio);
+      setActivePreview("");
+      return;
+    }
+    setLoadingPreview(key);
     setError("");
     try {
       let blob: Blob;
@@ -663,10 +682,11 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
         blob = await res.blob();
       }
       await playPreviewBlob(blob, previewAudioRef);
+      setActivePreview(key);
     } catch (err) {
       setError(err instanceof Error ? err.message : "preview failed");
     } finally {
-      setPreviewing("");
+      setLoadingPreview("");
     }
   }
 
@@ -700,11 +720,15 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
               <button
                 className="small-btn"
                 onClick={() => preview(voice)}
-                disabled={previewing !== ""}
+                disabled={loadingPreview !== ""}
                 title="Preview"
               >
-                <Play size={13} />
-                {previewing === `clone:${voice.name}` ? "..." : "Preview"}
+                {activePreview === `clone:${voice.name}` ? <Square size={13} /> : <Play size={13} />}
+                {loadingPreview === `clone:${voice.name}`
+                  ? "..."
+                  : activePreview === `clone:${voice.name}`
+                    ? "Stop"
+                    : "Preview"}
               </button>
               <button className="small-btn danger" onClick={() => remove(voice.name)}>
                 <Trash2 size={13} />
@@ -724,11 +748,15 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
             <button
               className="small-btn"
               onClick={() => preview(voice)}
-              disabled={previewing !== ""}
+              disabled={loadingPreview !== ""}
               title="Preview"
             >
-              <Play size={13} />
-              {previewing === `${voice.backend}:${voice.name}` ? "..." : "Preview"}
+              {activePreview === `${voice.backend}:${voice.name}` ? <Square size={13} /> : <Play size={13} />}
+              {loadingPreview === `${voice.backend}:${voice.name}`
+                ? "..."
+                : activePreview === `${voice.backend}:${voice.name}`
+                  ? "Stop"
+                  : "Preview"}
             </button>
           </div>
         ))}
@@ -1502,11 +1530,21 @@ async function playPreviewBlob(
 ) {
   const audio = audioRef.current;
   if (!audio) return;
-  if (audio.src) URL.revokeObjectURL(audio.src);
+  stopPreview(audio);
   const url = URL.createObjectURL(blob);
   audio.src = url;
   audio.onended = () => URL.revokeObjectURL(url);
   await audio.play();
+}
+
+function stopPreview(audio: HTMLAudioElement) {
+  audio.pause();
+  audio.currentTime = 0;
+  if (audio.src) {
+    URL.revokeObjectURL(audio.src);
+    audio.removeAttribute("src");
+    audio.load();
+  }
 }
 
 function truncate(value: string, max: number) {
