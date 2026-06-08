@@ -3,6 +3,7 @@ from __future__ import annotations
 import audioop
 import asyncio
 from io import BytesIO
+import os
 import re
 import subprocess
 import wave
@@ -40,6 +41,7 @@ class ParakeetBackend(STTBackend):
 
     async def _load(self) -> None:
         def load() -> Any:
+            _limit_non_ort_thread_pools()
             try:
                 import onnx_asr
             except ImportError as exc:
@@ -68,7 +70,7 @@ class ParakeetBackend(STTBackend):
 
         def run() -> str:
             waveform = _load_audio(audio)
-            results = self._model.recognize([waveform])
+            results = self._model.recognize(waveform)
             result = results[0] if isinstance(results, list) else results
             return _clean_text(getattr(result, "text", str(result)))
 
@@ -107,14 +109,82 @@ def _session_options(config: dict[str, Any]) -> Any:
     import onnxruntime as ort
 
     options = ort.SessionOptions()
-    options.intra_op_num_threads = int(config.get("ort_intra_threads", 1))
-    options.inter_op_num_threads = int(config.get("ort_inter_threads", 1))
+    options.intra_op_num_threads = _thread_count(
+        config.get("ort_intra_threads"), _default_ort_intra_threads()
+    )
+    options.inter_op_num_threads = _thread_count(config.get("ort_inter_threads"), 1)
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     options.add_session_config_entry("session.set_denormal_as_zero", "1")
     options.add_session_config_entry("session.intra_op.allow_spinning", "1")
     options.add_session_config_entry("session.inter_op.allow_spinning", "0")
     return options
+
+
+def _thread_count(value: Any, default: int) -> int:
+    if value in (None, "", "auto"):
+        return max(1, default)
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return max(1, default)
+
+
+def _default_ort_intra_threads() -> int:
+    return min(_physical_cpu_count(), _available_logical_cpus())
+
+
+def _available_logical_cpus() -> int:
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def _physical_cpu_count() -> int:
+    cpuinfo = _linux_physical_cpu_count()
+    if cpuinfo is not None:
+        return cpuinfo
+    return _available_logical_cpus()
+
+
+def _linux_physical_cpu_count() -> int | None:
+    try:
+        physical_ids: set[tuple[str, str]] = set()
+        physical_id = "0"
+        core_id: str | None = None
+        with open("/proc/cpuinfo", encoding="utf-8", errors="replace") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line:
+                    if core_id is not None:
+                        physical_ids.add((physical_id, core_id))
+                    physical_id = "0"
+                    core_id = None
+                    continue
+                if ":" not in line:
+                    continue
+                key, value = (item.strip() for item in line.split(":", 1))
+                if key == "physical id":
+                    physical_id = value
+                elif key == "core id":
+                    core_id = value
+        if core_id is not None:
+            physical_ids.add((physical_id, core_id))
+        return len(physical_ids) or None
+    except OSError:
+        return None
+
+
+def _limit_non_ort_thread_pools() -> None:
+    for name in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ):
+        os.environ.setdefault(name, "1")
 
 
 def _load_audio(data: bytes) -> np.ndarray:
