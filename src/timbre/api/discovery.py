@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Literal
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from timbre.config import CONFIG_PATH, BackendGroupConfig, TimbreConfig, dump_config, parse_config
 from timbre.errors import UnknownBackend
 from timbre.manager import BackendManager
+from timbre.models import download_model, model_records, set_active_model
 from timbre.voices.store import VoiceStore
 
 router = APIRouter()
@@ -17,6 +19,10 @@ router = APIRouter()
 
 class BackendAction(BaseModel):
     action: Literal["load", "unload", "enable", "disable"]
+
+
+class ModelAction(BaseModel):
+    action: Literal["download", "set_active"]
 
 
 @router.get("/health")
@@ -44,7 +50,24 @@ async def backends(request: Request) -> dict[str, list[dict[str, object]]]:
 
 @router.get("/v1/models")
 async def models(request: Request) -> dict[str, object]:
-    return {"object": "list", "data": request.app.state.manager.model_records()}
+    return {"object": "list", "data": model_records(request.app.state.config)}
+
+
+@router.post("/v1/models/{profile_id:path}")
+async def control_model(profile_id: str, payload: ModelAction, request: Request) -> dict[str, object]:
+    try:
+        if payload.action == "download":
+            path = await asyncio.to_thread(download_model, profile_id)
+            return {
+                "object": "list",
+                "path": str(path),
+                "data": model_records(request.app.state.config),
+            }
+        config = set_active_model(request.app.state.config, profile_id)
+        await _replace_config(request, config)
+        return {"object": "list", "data": model_records(config)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/v1/voices")

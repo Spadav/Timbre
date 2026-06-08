@@ -735,6 +735,51 @@ button {
   gap: 16px;
 }
 
+.model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.model-card {
+  background: var(--bg-s);
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+}
+
+.model-active {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--bdr));
+}
+
+.model-title {
+  font-family: var(--fm);
+  color: var(--txt-p);
+  font-size: 15px;
+}
+
+.model-meta,
+.model-path,
+.model-state {
+  margin-top: 7px;
+  color: var(--txt-s);
+  font-family: var(--fm);
+  font-size: 12px;
+}
+
+.model-path {
+  overflow-wrap: anywhere;
+}
+
+.model-right {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 10px;
+}
+
 .backend-disabled {
   opacity: 0.64;
 }
@@ -937,6 +982,31 @@ button {
   border-radius: 4px;
   background: var(--bg-s);
   overflow: hidden;
+}
+
+.advanced-options {
+  border-top: 1px solid var(--bdr);
+}
+
+.advanced-options summary {
+  min-height: 38px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-family: var(--fm);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--txt-s);
+}
+
+.advanced-options summary:hover {
+  color: var(--acc);
+}
+
+.advanced-options .config-field {
+  border-top: 1px solid var(--bdr);
 }
 
 .api-grid {
@@ -1142,5 +1212,13 @@ button {
   .config-backends,
   .api-grid {
     grid-template-columns: 1fr;
+  }
+
+  .model-card {
+    grid-template-columns: 1fr;
+  }
+
+  .model-right {
+    justify-items: start;
   }
 }

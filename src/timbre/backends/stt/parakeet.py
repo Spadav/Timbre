@@ -58,7 +58,8 @@ class ParakeetBackend(STTBackend):
                 "providers": providers,
                 "sess_options": sess_options,
             }
-            model = onnx_asr.load_model(cfg["hf_id"], **kwargs)
+            model_path = self.config.get("model_path")
+            model = onnx_asr.load_model(cfg["hf_id"], path=model_path, **kwargs)
             if bool(self.config.get("timestamps", False)) and hasattr(model, "with_timestamps"):
                 model = model.with_timestamps()
             return model

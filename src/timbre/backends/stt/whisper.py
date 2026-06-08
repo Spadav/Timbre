@@ -26,11 +26,21 @@ class WhisperBackend(STTBackend):
                 ) from exc
             device = self.config.get("device", "cpu")
             compute_type = self.config.get("compute_type", "int8" if device == "cpu" else "float16")
+            model_path = self.config.get("model_path")
+            model_size_or_path = self.config.get("model_size", "base")
+            download_root = None
+            if model_path:
+                path = Path(model_path)
+                if path.exists() and any(path.iterdir()):
+                    model_size_or_path = str(path)
+                else:
+                    download_root = str(path.parent)
             return WhisperModel(
-                self.config.get("model_size", "base"),
+                model_size_or_path,
                 device=device.split(":")[0],
                 device_index=_device_index(device),
                 compute_type=compute_type,
+                download_root=download_root,
             )
 
         self._model = await asyncio.to_thread(load)

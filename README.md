@@ -48,8 +48,36 @@ curl http://127.0.0.1:9000/v1/backends
 curl http://127.0.0.1:9000/v1/voices
 ```
 
-`model` is the backend name. TTS backends include names such as `pocket` and
-`supertonic`; STT backends include names such as `parakeet` and `whisper`.
+`model` in speech/transcription requests is the backend name. TTS backends
+include names such as `pocket` and `supertonic`; STT backends include names
+such as `parakeet` and `whisper`. The actual backend model variant is selected
+from `/v1/models` or the Models page.
+
+### Model Management
+
+Models are stored under `~/.config/timbre/models/`.
+
+```bash
+# List available model profiles and install state.
+curl http://127.0.0.1:9000/v1/models
+
+# Download a model profile into Timbre's model folder.
+curl http://127.0.0.1:9000/v1/models/parakeet:int8 \
+  -H "content-type: application/json" \
+  -d '{"action":"download"}'
+
+# Set the backend's active model profile.
+curl http://127.0.0.1:9000/v1/models/whisper:small \
+  -H "content-type: application/json" \
+  -d '{"action":"set_active"}'
+```
+
+CLI equivalent:
+
+```bash
+timbre download-models --model parakeet:int8 --set-default
+timbre download-models --model whisper:small --set-default
+```
 
 ### Text to Speech
 

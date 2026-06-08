@@ -65,7 +65,7 @@ def default_config() -> TimbreConfig:
                     ttl=300,
                     options={
                         "model": "supertonic-3",
-                        "model_path": str(CONFIG_DIR / "models" / "supertonic"),
+                        "model_path": str(CONFIG_DIR / "models" / "supertonic" / "supertonic-3"),
                         "steps": 8,
                     },
                 ),
@@ -75,7 +75,13 @@ def default_config() -> TimbreConfig:
             default="whisper",
             backends={
                 "whisper": BackendConfig(
-                    enabled=True, device="cpu", ttl=300, options={"model_size": "base"}
+                    enabled=True,
+                    device="cpu",
+                    ttl=300,
+                    options={
+                        "model_size": "base",
+                        "model_path": str(CONFIG_DIR / "models" / "whisper" / "base"),
+                    },
                 ),
                 "parakeet": BackendConfig(
                     enabled=True,
@@ -85,7 +91,7 @@ def default_config() -> TimbreConfig:
                         "model": "parakeet-tdt-0.6b-v3",
                         "repo_id": "nemo-parakeet-tdt-0.6b-v3",
                         "quantization": "int8",
-                        "model_path": str(CONFIG_DIR / "models" / "parakeet"),
+                        "model_path": str(CONFIG_DIR / "models" / "parakeet" / "int8"),
                     },
                 ),
             },

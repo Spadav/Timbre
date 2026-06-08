@@ -1,5 +1,6 @@
 import {
   ClipboardList,
+  Cpu,
   Headphones,
   Mic,
   Play,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Page = "speak" | "listen" | "backends" | "voices" | "log" | "config" | "api";
+type Page = "speak" | "listen" | "backends" | "models" | "voices" | "log" | "config" | "api";
 
 type Backend = {
   name: string;
@@ -31,6 +32,18 @@ type Voice = {
   type: "preset" | "cloned";
   audio_path?: string | null;
   prepared_backends?: string[];
+};
+
+type ModelRecord = {
+  id: string;
+  object: "model";
+  kind: "tts" | "stt";
+  backend: string;
+  label: string;
+  path: string;
+  downloadable: boolean;
+  installed: boolean;
+  active: boolean;
 };
 
 type Health = {
@@ -97,6 +110,12 @@ const api = {
     const body = await res.json();
     return body.data;
   },
+  async models(): Promise<ModelRecord[]> {
+    const res = await fetch("/v1/models");
+    if (!res.ok) throw new Error("model list failed");
+    const body = await res.json();
+    return body.data;
+  },
   async config(): Promise<ConfigResponse> {
     const res = await fetch("/v1/config");
     if (!res.ok) throw new Error("config load failed");
@@ -126,6 +145,19 @@ const api = {
     }
     const body = await res.json();
     return body.data;
+  },
+  async modelAction(id: string, action: "download" | "set_active"): Promise<ModelRecord[]> {
+    const res = await fetch(`/v1/models/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    if (!res.ok) {
+      const body = await safeJson(res);
+      throw new Error(body.detail || `model ${action} failed`);
+    }
+    const body = await res.json();
+    return body.data;
   }
 };
 
@@ -133,6 +165,7 @@ function App() {
   const [page, setPage] = useState<Page>("speak");
   const [online, setOnline] = useState(false);
   const [backends, setBackends] = useState<Backend[]>([]);
+  const [models, setModels] = useState<ModelRecord[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [statusText, setStatusText] = useState("starting");
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
@@ -150,13 +183,15 @@ function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [health, backendList, voiceList] = await Promise.all([
+      const [health, backendList, modelList, voiceList] = await Promise.all([
         api.health(),
         api.backends(),
+        api.models(),
         api.voices()
       ]);
       setOnline(health.status === "ok");
       setBackends(backendList);
+      setModels(modelList);
       setVoices(voiceList);
       setStatusText("online");
     } catch (err) {
@@ -186,6 +221,7 @@ function App() {
           <NavItem page="speak" active={page} onClick={setPage} label="Speak" icon={<Volume2 />} />
           <NavItem page="listen" active={page} onClick={setPage} label="Listen" icon={<Headphones />} />
           <NavItem page="backends" active={page} onClick={setPage} label="Backends" icon={<Radio />} />
+          <NavItem page="models" active={page} onClick={setPage} label="Models" icon={<Cpu />} />
           <NavItem page="voices" active={page} onClick={setPage} label="Voices" icon={<Mic />} />
           <NavItem page="log" active={page} onClick={setPage} label="Log" icon={<ClipboardList />} />
           <NavItem page="config" active={page} onClick={setPage} label="Config" icon={<Settings />} />
@@ -228,6 +264,7 @@ function App() {
           )}
           {page === "listen" && <ListenPage backends={backends} onActivity={addActivity} />}
           {page === "backends" && <BackendsPage backends={backends} onRefresh={refresh} />}
+          {page === "models" && <ModelsPage models={models} onRefresh={refresh} />}
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
           {page === "log" && <LogPage activity={activity} />}
           {page === "config" && <ConfigPage backends={backends} onRefresh={refresh} />}
@@ -590,6 +627,78 @@ function BackendsPage({ backends, onRefresh }: { backends: Backend[]; onRefresh:
       </div>
       <BackendGroup title="text to speech" backends={tts} onRefresh={onRefresh} />
       <BackendGroup title="speech to text" backends={stt} onRefresh={onRefresh} />
+    </div>
+  );
+}
+
+function ModelsPage({ models, onRefresh }: { models: ModelRecord[]; onRefresh: () => void }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const groups = ["pocket", "supertonic", "whisper", "parakeet"]
+    .map((backend) => ({ backend, models: models.filter((item) => item.backend === backend) }))
+    .filter((group) => group.models.length > 0);
+
+  async function act(model: ModelRecord, action: "download" | "set_active") {
+    setBusy(`${action}:${model.id}`);
+    setError("");
+    try {
+      await api.modelAction(model.id, action);
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${action} failed`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div className="page-grid">
+      <div className="stats-row">
+        <Metric label="profiles" value={String(models.length)} />
+        <Metric label="installed" value={String(models.filter((item) => item.installed).length)} />
+        <Metric label="active" value={String(models.filter((item) => item.active).length)} />
+        <Metric label="downloadable" value={String(models.filter((item) => item.downloadable).length)} />
+      </div>
+      {groups.map((group, index) => (
+        <div key={group.backend}>
+          <SectionHeader num={String(index + 1).padStart(2, "0")} title={group.backend} />
+          <div className="model-list">
+            {group.models.map((model) => (
+              <div className={`model-card ${model.active ? "model-active" : ""}`} key={model.id}>
+                <div>
+                  <div className="model-title">{model.label}</div>
+                  <div className="model-meta">{model.id}</div>
+                  <div className="model-path">{model.path}</div>
+                </div>
+                <div className="model-right">
+                  <span className={model.active ? "ok-text" : model.installed ? "model-state" : "err-text"}>
+                    {model.active ? "active" : model.installed ? "installed" : "missing"}
+                  </span>
+                  <div className="backend-actions">
+                    {model.downloadable && (
+                      <button
+                        className="small-btn"
+                        disabled={busy !== ""}
+                        onClick={() => act(model, "download")}
+                      >
+                        {busy === `download:${model.id}` ? "..." : "Download"}
+                      </button>
+                    )}
+                    <button
+                      className="small-btn"
+                      disabled={busy !== "" || model.active}
+                      onClick={() => act(model, "set_active")}
+                    >
+                      {busy === `set_active:${model.id}` ? "..." : "Set active"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {error && <div className="error-line backend-error">{error}</div>}
     </div>
   );
 }
@@ -993,13 +1102,16 @@ function ConfigBackendGroup({
                   />
                 </label>
               </div>
-              <label className="config-field options-field">
-                <span>options</span>
-                <textarea
-                  value={optionText[key] || "{}"}
-                  onChange={(event) => onOptionsChange(key, event.target.value)}
-                />
-              </label>
+              <details className="advanced-options">
+                <summary>Advanced options</summary>
+                <label className="config-field options-field">
+                  <span>raw options</span>
+                  <textarea
+                    value={optionText[key] || "{}"}
+                    onChange={(event) => onOptionsChange(key, event.target.value)}
+                  />
+                </label>
+              </details>
             </div>
           );
         })}
@@ -1704,10 +1816,11 @@ function pageLabel(page: Page) {
     speak: "01 — speak",
     listen: "02 — listen",
     backends: "03 — backends",
-    voices: "04 — voices",
-    log: "05 — log",
-    config: "06 — config",
-    api: "07 — api"
+    models: "04 — models",
+    voices: "05 — voices",
+    log: "06 — log",
+    config: "07 — config",
+    api: "08 — api"
   };
   return labels[page];
 }

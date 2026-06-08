@@ -4,9 +4,10 @@ import argparse
 from pathlib import Path
 
 import uvicorn
-from huggingface_hub import snapshot_download
+import yaml
 
-from timbre.config import CONFIG_PATH, load_config, write_default_config
+from timbre.config import CONFIG_PATH, dump_config, load_config, write_default_config
+from timbre.models import download_model, model_profiles, set_active_model
 from timbre.server import create_app
 
 
@@ -27,7 +28,11 @@ def main(argv: list[str] | None = None) -> None:
         "download-models", help="Download model files managed outside pip."
     )
     download_parser.add_argument("--config", type=Path, default=CONFIG_PATH)
-    download_parser.add_argument("--backend", choices=["supertonic", "parakeet", "all"], default="all")
+    download_parser.add_argument(
+        "--backend", choices=["supertonic", "parakeet", "whisper", "all"], default="all"
+    )
+    download_parser.add_argument("--model", help="Model profile id, for example parakeet:int8.")
+    download_parser.add_argument("--set-default", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "setup":
@@ -41,20 +46,27 @@ def main(argv: list[str] | None = None) -> None:
         uvicorn.run(create_app(config), host=host, port=port)
         return
     if args.command == "download-models":
-        download_models(args.config, args.backend)
+        download_models(args.config, args.backend, args.model, args.set_default)
 
 
-def download_models(config_path: Path, backend: str) -> None:
+def download_models(config_path: Path, backend: str, model: str | None, set_default: bool) -> None:
     config = load_config(config_path)
-    if backend in {"supertonic", "all"}:
-        supertonic = config.tts.backends.get("supertonic")
-        if supertonic and supertonic.options.get("model_path"):
-            print("Supertonic downloads its SDK models on first use; no static repo is configured.")
-    if backend in {"parakeet", "all"}:
-        parakeet = config.stt.backends.get("parakeet")
-        if parakeet:
-            repo_id = parakeet.options.get("repo_id", "nemo-parakeet-tdt-0.6b-v3")
-            model_path = parakeet.options.get("model_path")
-            if model_path:
-                path = snapshot_download(repo_id=repo_id, local_dir=model_path)
-                print(f"Downloaded Parakeet model files to: {path}")
+    if model:
+        profiles = [profile for profile in model_profiles() if profile.id == model]
+    else:
+        profiles = [
+            profile
+            for profile in model_profiles()
+            if profile.downloadable and (backend == "all" or profile.backend == backend)
+        ]
+    if not profiles:
+        available = ", ".join(profile.id for profile in model_profiles())
+        raise SystemExit(f"No matching model profiles. Available: {available}")
+    for profile in profiles:
+        path = download_model(profile.id)
+        print(f"Downloaded {profile.id} to: {path}")
+        if set_default:
+            config = set_active_model(config, profile.id)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with config_path.open("w", encoding="utf-8") as handle:
+                yaml.safe_dump(dump_config(config), handle, sort_keys=False)
