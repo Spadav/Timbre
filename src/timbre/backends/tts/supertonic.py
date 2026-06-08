@@ -8,6 +8,17 @@ from timbre.backends.base import TTSBackend
 from timbre.errors import BackendUnavailable
 from timbre.wav import pcm_wav_bytes
 
+OPENAI_TO_SUPERTONIC = {
+    "alloy": "F1",
+    "echo": "M1",
+    "fable": "M2",
+    "nova": "F2",
+    "onyx": "M3",
+    "shimmer": "F3",
+}
+NATIVE_VOICES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
+DEFAULT_VOICE = "M1"
+
 
 class SupertonicBackend(TTSBackend):
     name = "supertonic"
@@ -66,7 +77,7 @@ class SupertonicBackend(TTSBackend):
 
     @property
     def voices(self) -> list[str]:
-        return ["M1", "F1", "default"]
+        return ["default", *OPENAI_TO_SUPERTONIC, *NATIVE_VOICES]
 
     def _cache_builtin_voices(self) -> None:
         for voice in self.voices:
@@ -97,7 +108,7 @@ def _style_for_voice(engine: Any, voice: str, voices_dir: str | None) -> Any:
     cloned = _cloned_style_path(voice, voices_dir)
     if cloned:
         return engine.get_voice_style_from_path(cloned)
-    preset = "M1" if voice == "default" else voice
+    preset = DEFAULT_VOICE if voice == "default" else OPENAI_TO_SUPERTONIC.get(voice, voice)
     try:
         return engine.get_voice_style(preset)
     except Exception as exc:
