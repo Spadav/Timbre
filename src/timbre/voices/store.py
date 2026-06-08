@@ -34,6 +34,15 @@ class VoiceStore:
             records.append(VoiceRecord(path.name, path, audio, caches))
         return records
 
+    def get(self, name: str) -> VoiceRecord | None:
+        if not SAFE_NAME.match(name):
+            return None
+        path = self.root / name
+        if not path.is_dir():
+            return None
+        audio = next((item for item in path.iterdir() if item.name.startswith("reference.")), None)
+        return VoiceRecord(path.name, path, audio, sorted(path.glob("*.safetensors")))
+
     async def save_upload(self, name: str, upload: UploadFile) -> VoiceRecord:
         if not SAFE_NAME.match(name):
             raise ValueError("Voice name must be 1-80 chars: letters, numbers, dot, dash, underscore.")

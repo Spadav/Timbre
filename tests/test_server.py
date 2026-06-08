@@ -68,3 +68,19 @@ async def test_backend_enable_disable_updates_config(tmp_path) -> None:
         states = response.json()["data"]
         pocket = next(item for item in states if item["kind"] == "tts" and item["name"] == "pocket")
         assert pocket["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_cloned_voice_reference_is_served(tmp_path) -> None:
+    config = default_config()
+    config.voices.dir = tmp_path / "voices"
+    app = create_app(config)
+    voice_dir = config.voices.dir / "aria"
+    voice_dir.mkdir(parents=True)
+    (voice_dir / "reference.wav").write_bytes(b"RIFFtestWAVE")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v1/voices/aria/reference")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("audio/wav")
+        assert response.content == b"RIFFtestWAVE"

@@ -594,7 +594,9 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   const [backend, setBackend] = useState("pocket");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [previewing, setPreviewing] = useState("");
   const [error, setError] = useState("");
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const cloned = voices.filter((voice) => voice.type === "cloned");
   const presets = voices.filter((voice) => voice.type === "preset");
 
@@ -629,6 +631,45 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
     onRefresh();
   }
 
+  async function preview(voice: Voice) {
+    const key = voice.type === "cloned" ? `clone:${voice.name}` : `${voice.backend}:${voice.name}`;
+    setPreviewing(key);
+    setError("");
+    try {
+      let blob: Blob;
+      if (voice.type === "cloned") {
+        const res = await fetch(`/v1/voices/${encodeURIComponent(voice.name)}/reference`);
+        if (!res.ok) {
+          const body = await safeJson(res);
+          throw new Error(body.detail || `preview failed: ${res.status}`);
+        }
+        blob = await res.blob();
+      } else {
+        const res = await fetch("/v1/audio/speech", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: voice.backend,
+            input: `This is ${voice.name}, previewing in Timbre.`,
+            voice: voice.name,
+            response_format: "wav",
+            speed: 1
+          })
+        });
+        if (!res.ok) {
+          const body = await safeJson(res);
+          throw new Error(body.detail || `preview failed: ${res.status}`);
+        }
+        blob = await res.blob();
+      }
+      await playPreviewBlob(blob, previewAudioRef);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "preview failed");
+    } finally {
+      setPreviewing("");
+    }
+  }
+
   return (
     <div className="page-grid">
       <SectionHeader num="01" title="new clone" />
@@ -655,10 +696,21 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
           <div className="voice-card" key={voice.name}>
             <div className="voice-name">{voice.name}</div>
             <div className="voice-meta">{voice.prepared_backends?.join(", ") || "reference only"}</div>
-            <button className="small-btn danger" onClick={() => remove(voice.name)}>
-              <Trash2 size={13} />
-              Delete
-            </button>
+            <div className="voice-actions">
+              <button
+                className="small-btn"
+                onClick={() => preview(voice)}
+                disabled={previewing !== ""}
+                title="Preview"
+              >
+                <Play size={13} />
+                {previewing === `clone:${voice.name}` ? "..." : "Preview"}
+              </button>
+              <button className="small-btn danger" onClick={() => remove(voice.name)}>
+                <Trash2 size={13} />
+                Delete
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -669,9 +721,19 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
           <div className="voice-card" key={`${voice.backend}-${voice.name}`}>
             <div className="voice-name">{voice.name}</div>
             <div className="voice-meta">{voice.backend} · built-in</div>
+            <button
+              className="small-btn"
+              onClick={() => preview(voice)}
+              disabled={previewing !== ""}
+              title="Preview"
+            >
+              <Play size={13} />
+              {previewing === `${voice.backend}:${voice.name}` ? "..." : "Preview"}
+            </button>
           </div>
         ))}
       </div>
+      <audio ref={previewAudioRef} />
     </div>
   );
 }
@@ -1432,6 +1494,19 @@ async function safeJson(res: Response): Promise<{ detail?: string }> {
   } catch {
     return {};
   }
+}
+
+async function playPreviewBlob(
+  blob: Blob,
+  audioRef: React.MutableRefObject<HTMLAudioElement | null>
+) {
+  const audio = audioRef.current;
+  if (!audio) return;
+  if (audio.src) URL.revokeObjectURL(audio.src);
+  const url = URL.createObjectURL(blob);
+  audio.src = url;
+  audio.onended = () => URL.revokeObjectURL(url);
+  await audio.play();
 }
 
 function truncate(value: string, max: number) {
