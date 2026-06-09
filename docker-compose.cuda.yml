@@ -1,0 +1,17 @@
+services:
+  timbre:
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+    image: spadav/timbre:cuda
+    ports:
+      - "9000:9000"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${TIMBRE_NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    gpus: all
+    volumes:
+      - timbre-data:/root/.config/timbre
+
+volumes:
+  timbre-data:

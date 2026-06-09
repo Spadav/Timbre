@@ -1,0 +1,35 @@
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ffmpeg \
+        git \
+        git-lfs \
+        ninja-build \
+        python3-pip \
+        python3-venv \
+        python3.12 \
+        python3.12-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.12 -m pip install --break-system-packages --upgrade pip setuptools wheel packaging ninja
+
+RUN python3.12 -m pip install --break-system-packages \
+    --index-url https://download.pytorch.org/whl/cu126 \
+    torch==2.6.0 \
+    torchaudio==2.6.0
+
+RUN python3.12 -m pip install --break-system-packages flash-attn --no-build-isolation
+
+WORKDIR /app
+COPY . /app
+RUN python3.12 -m pip install --break-system-packages ".[all,qwen3]"
+
+EXPOSE 9000
+CMD ["timbre", "serve", "--host", "0.0.0.0", "--port", "9000"]

@@ -72,7 +72,7 @@ def default_config() -> TimbreConfig:
                 ),
                 "qwen3": BackendConfig(
                     enabled=False,
-                    device="cuda",
+                    device="cuda:auto",
                     ttl=0,
                     options={
                         "model": "1.7b-customvoice",

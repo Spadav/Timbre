@@ -49,7 +49,7 @@ class Qwen3Backend(TTSBackend):
                 ) from exc
 
             source = _model_source(self.config)
-            device = _resolve_device(str(self.config.get("device", "cuda")), torch)
+            device = _resolve_device(str(self.config.get("device", "cuda:auto")), torch)
             dtype = _resolve_dtype(str(self.config.get("dtype", "auto")), device, torch)
             try:
                 torch.set_float32_matmul_precision("high")
@@ -197,11 +197,36 @@ def _model_source(config: dict[str, Any]) -> str:
 
 
 def _resolve_device(device: str, torch: Any) -> str:
-    if device in {"", "auto"}:
-        return "cuda:0" if torch.cuda.is_available() else "cpu"
+    device = device.strip().lower()
+    if device in {"", "auto", "cuda", "cuda:auto", "cuda:best"}:
+        if not torch.cuda.is_available():
+            if device.startswith("cuda"):
+                raise BackendUnavailable("Qwen3 is configured for CUDA, but CUDA is not available.")
+            return "cpu"
+        return _best_cuda_device(torch)
     if device.startswith("cuda") and not torch.cuda.is_available():
         raise BackendUnavailable("Qwen3 is configured for CUDA, but CUDA is not available.")
     return device
+
+
+def _best_cuda_device(torch: Any) -> str:
+    device_count = int(torch.cuda.device_count())
+    if device_count <= 0:
+        raise BackendUnavailable("Qwen3 is configured for CUDA, but no CUDA devices are visible.")
+
+    best_index = 0
+    best_free = -1
+    for index in range(device_count):
+        try:
+            with torch.cuda.device(index):
+                free, _total = torch.cuda.mem_get_info()
+        except Exception:
+            props = torch.cuda.get_device_properties(index)
+            free = int(getattr(props, "total_memory", 0))
+        if int(free) > best_free:
+            best_index = index
+            best_free = int(free)
+    return f"cuda:{best_index}"
 
 
 def _resolve_dtype(dtype: str, device: str, torch: Any) -> Any:

@@ -32,7 +32,7 @@ def test_qwen3_is_optional_and_disabled_by_default() -> None:
     qwen3 = config.tts.backends["qwen3"]
 
     assert not qwen3.enabled
-    assert qwen3.device == "cuda"
+    assert qwen3.device == "cuda:auto"
     assert qwen3.options["model"] == "1.7b-customvoice"
     assert qwen3.options["model_type"] == "customvoice"
 

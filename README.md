@@ -94,6 +94,41 @@ timbre download-models --model qwen3:0.6b-customvoice --set-default
 CustomVoice profiles use Qwen's built-in voices such as `Vivian`. Base profiles
 are intended for uploaded cloned voice references.
 
+For multi-GPU systems, set Qwen's backend device in Config to an explicit GPU
+such as `cuda:1`, or leave it as `cuda:auto` to choose the visible CUDA device
+with the most free memory. This avoids accidentally loading Qwen on display GPU
+0 when a larger secondary GPU is available. You can also constrain visibility at
+the process level with `CUDA_VISIBLE_DEVICES`.
+
+For best Qwen throughput, install Flash Attention after Torch is installed:
+
+```bash
+pip install flash-attn --no-build-isolation
+```
+
+Timbre tries `flash_attention_2` first, then falls back to `sdpa` and `eager` if
+Flash Attention is unavailable.
+
+CUDA Docker build:
+
+```bash
+docker compose -f docker-compose.cuda.yml up -d --build
+```
+
+The CUDA image uses an NVIDIA CUDA `devel` base instead of a `runtime` base so
+Flash Attention can build with `nvcc`. It pins Torch/Torchaudio to CUDA 12.6
+before installing `flash-attn`.
+
+To expose only one GPU to Timbre, pass a Docker/NVIDIA visible device value:
+
+```bash
+TIMBRE_NVIDIA_VISIBLE_DEVICES=GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+  docker compose -f docker-compose.cuda.yml up -d --build
+```
+
+Inside that restricted container, `cuda:auto` picks the visible GPU with the
+most free memory.
+
 ### Text to Speech
 
 ```bash

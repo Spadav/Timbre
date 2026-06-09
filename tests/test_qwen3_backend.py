@@ -6,8 +6,10 @@ from typing import Any
 from timbre.backends.tts.qwen3 import (
     DEFAULT_QWEN3_VOICES,
     Qwen3Backend,
+    _best_cuda_device,
     _generate_native,
     _model_source,
+    _resolve_device,
 )
 
 
@@ -57,3 +59,44 @@ def test_qwen3_native_generation_maps_default_voice() -> None:
 
     assert audio == [0.0, 0.25, -0.25]
     assert sample_rate == 24000
+
+
+def test_qwen3_resolves_auto_cuda_to_gpu_with_most_free_memory() -> None:
+    class FakeCuda:
+        def __init__(self) -> None:
+            self.current = 0
+
+        def is_available(self) -> bool:
+            return True
+
+        def device_count(self) -> int:
+            return 2
+
+        def device(self, index: int) -> "FakeCuda":
+            self.current = index
+            return self
+
+        def __enter__(self) -> None:
+            return None
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def mem_get_info(self) -> tuple[int, int]:
+            return [(2, 10), (18, 24)][self.current]
+
+    fake_torch = type("FakeTorch", (), {"cuda": FakeCuda()})()
+
+    assert _resolve_device("cuda:auto", fake_torch) == "cuda:1"
+    assert _resolve_device("cuda", fake_torch) == "cuda:1"
+    assert _best_cuda_device(fake_torch) == "cuda:1"
+
+
+def test_qwen3_keeps_explicit_cuda_device() -> None:
+    class FakeCuda:
+        def is_available(self) -> bool:
+            return True
+
+    fake_torch = type("FakeTorch", (), {"cuda": FakeCuda()})()
+
+    assert _resolve_device("cuda:1", fake_torch) == "cuda:1"
