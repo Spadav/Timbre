@@ -49,9 +49,9 @@ curl http://127.0.0.1:9000/v1/voices
 ```
 
 `model` in speech/transcription requests is the backend name. TTS backends
-include names such as `pocket` and `supertonic`; STT backends include names
-such as `parakeet` and `whisper`. The actual backend model variant is selected
-from `/v1/models` or the Models page.
+include names such as `pocket`, `supertonic`, and `qwen3`; STT backends
+include names such as `parakeet` and `whisper`. The actual backend model
+variant is selected from `/v1/models` or the Models page.
 
 Voice aliases are backend-scoped. For example, Timbre can accept
 `{"model":"supertonic","voice":"alloy"}` and resolve that alias to the native
@@ -83,6 +83,17 @@ timbre download-models --model parakeet:int8 --set-default
 timbre download-models --model whisper:small --set-default
 ```
 
+Qwen3 is optional and disabled by default because it is CUDA-focused and pulls
+heavy dependencies:
+
+```bash
+pip install -e ".[qwen3]"
+timbre download-models --model qwen3:0.6b-customvoice --set-default
+```
+
+CustomVoice profiles use Qwen's built-in voices such as `Vivian`. Base profiles
+are intended for uploaded cloned voice references.
+
 ### Text to Speech
 
 ```bash
@@ -91,13 +102,27 @@ curl http://127.0.0.1:9000/v1/audio/speech \
   -d '{
     "model": "pocket",
     "input": "Hello from Timbre.",
-    "voice": "aria",
+    "voice": "default",
     "response_format": "wav",
     "speed": 1.0,
     "language": "en",
     "steps": 8
   }' \
   --output timbre.wav
+```
+
+Qwen3 example:
+
+```bash
+curl http://127.0.0.1:9000/v1/audio/speech \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "qwen3",
+    "input": "Hello from Timbre through Qwen.",
+    "voice": "Vivian",
+    "response_format": "wav"
+  }' \
+  --output qwen.wav
 ```
 
 `response_format` accepts `wav`, `mp3`, `opus`, `ogg`, or `flac`. `language`

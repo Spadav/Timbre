@@ -30,7 +30,7 @@ async def test_health_and_backends_respond_without_loading_models() -> None:
     ) as client:
         assert (await client.get("/health")).json()["status"] == "ok"
         states = (await client.get("/v1/backends")).json()["data"]
-        assert len(states) == 4
+        assert len(states) == 5
         assert all(item["enabled"] is False and item["loaded"] is False for item in states)
 
 
@@ -87,12 +87,12 @@ async def test_cloned_voice_reference_is_served(tmp_path) -> None:
     config = default_config()
     config.voices.dir = tmp_path / "voices"
     app = create_app(config)
-    voice_dir = config.voices.dir / "aria"
+    voice_dir = config.voices.dir / "sample_clone"
     voice_dir.mkdir(parents=True)
     (voice_dir / "reference.wav").write_bytes(b"RIFFtestWAVE")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/v1/voices/aria/reference")
+        response = await client.get("/v1/voices/sample_clone/reference")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("audio/wav")
         assert response.content == b"RIFFtestWAVE"

@@ -43,6 +43,66 @@ def model_profiles() -> list[ModelProfile]:
             options={"model": "supertonic-3", "model_path": str(root / "supertonic" / "supertonic-3")},
         ),
         ModelProfile(
+            id="qwen3:0.6b-base",
+            backend="qwen3",
+            kind="tts",
+            label="Qwen3 TTS 0.6B Base",
+            path=root / "qwen3" / "0.6b-base",
+            repo_id="Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+            options={
+                "model": "0.6b-base",
+                "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+                "model_type": "base",
+                "model_path": str(root / "qwen3" / "0.6b-base"),
+            },
+            downloadable=True,
+        ),
+        ModelProfile(
+            id="qwen3:0.6b-customvoice",
+            backend="qwen3",
+            kind="tts",
+            label="Qwen3 TTS 0.6B CustomVoice",
+            path=root / "qwen3" / "0.6b-customvoice",
+            repo_id="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+            options={
+                "model": "0.6b-customvoice",
+                "repo_id": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+                "model_type": "customvoice",
+                "model_path": str(root / "qwen3" / "0.6b-customvoice"),
+            },
+            downloadable=True,
+        ),
+        ModelProfile(
+            id="qwen3:1.7b-base",
+            backend="qwen3",
+            kind="tts",
+            label="Qwen3 TTS 1.7B Base",
+            path=root / "qwen3" / "1.7b-base",
+            repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+            options={
+                "model": "1.7b-base",
+                "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+                "model_type": "base",
+                "model_path": str(root / "qwen3" / "1.7b-base"),
+            },
+            downloadable=True,
+        ),
+        ModelProfile(
+            id="qwen3:1.7b-customvoice",
+            backend="qwen3",
+            kind="tts",
+            label="Qwen3 TTS 1.7B CustomVoice",
+            path=root / "qwen3" / "1.7b-customvoice",
+            repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+            options={
+                "model": "1.7b-customvoice",
+                "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                "model_type": "customvoice",
+                "model_path": str(root / "qwen3" / "1.7b-customvoice"),
+            },
+            downloadable=True,
+        ),
+        ModelProfile(
             id="whisper:tiny",
             backend="whisper",
             kind="stt",
@@ -166,6 +226,7 @@ def set_active_model(config: TimbreConfig, profile_id: str) -> TimbreConfig:
     if backend is None:
         raise ValueError(f"Backend '{profile.backend}' is not configured.")
     backend.options.update(profile.options)
+    backend.enabled = True
     group.default = profile.backend
     return config
 

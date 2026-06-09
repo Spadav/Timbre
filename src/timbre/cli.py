@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     download_parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     download_parser.add_argument(
-        "--backend", choices=["supertonic", "parakeet", "whisper", "all"], default="all"
+        "--backend", choices=["supertonic", "parakeet", "whisper", "qwen3", "all"], default="all"
     )
     download_parser.add_argument("--model", help="Model profile id, for example parakeet:int8.")
     download_parser.add_argument("--set-default", action="store_true")

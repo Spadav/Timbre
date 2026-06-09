@@ -70,6 +70,23 @@ def default_config() -> TimbreConfig:
                         "steps": 8,
                     },
                 ),
+                "qwen3": BackendConfig(
+                    enabled=False,
+                    device="cuda",
+                    ttl=0,
+                    options={
+                        "model": "1.7b-customvoice",
+                        "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                        "model_type": "customvoice",
+                        "model_path": str(
+                            CONFIG_DIR / "models" / "qwen3" / "1.7b-customvoice"
+                        ),
+                        "dtype": "auto",
+                        "attention": ["flash_attention_2", "sdpa", "eager"],
+                        "language": "Auto",
+                        "x_vector_only_mode": True,
+                    },
+                ),
             },
         ),
         stt=BackendGroupConfig(

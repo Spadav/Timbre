@@ -27,6 +27,16 @@ def test_supertonic_default_model_is_configurable() -> None:
     assert supertonic.options["steps"] == 8
 
 
+def test_qwen3_is_optional_and_disabled_by_default() -> None:
+    config = parse_config({})
+    qwen3 = config.tts.backends["qwen3"]
+
+    assert not qwen3.enabled
+    assert qwen3.device == "cuda"
+    assert qwen3.options["model"] == "1.7b-customvoice"
+    assert qwen3.options["model_type"] == "customvoice"
+
+
 def test_voice_aliases_round_trip() -> None:
     config = parse_config({"voices": {"aliases": {"pocket": {"narrator": "alba"}}}})
     assert config.voices.aliases == {"pocket": {"narrator": "alba"}}

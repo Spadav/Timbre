@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from timbre.audio import media_type_for
 from timbre.errors import BackendUnavailable, UnknownBackend
@@ -38,12 +38,12 @@ async def create_voice(
 
 
 @router.get("/v1/voices/{name}/reference")
-async def voice_reference(request: Request, name: str) -> FileResponse:
+async def voice_reference(request: Request, name: str) -> Response:
     record = request.app.state.voice_store.get(name)
     if record is None or record.audio_path is None or not record.audio_path.is_file():
         raise HTTPException(status_code=404, detail=f"Voice '{name}' has no reference audio.")
     fmt = record.audio_path.suffix.lower().lstrip(".")
-    return FileResponse(record.audio_path, media_type=media_type_for(fmt), filename=record.audio_path.name)
+    return Response(content=record.audio_path.read_bytes(), media_type=media_type_for(fmt))
 
 
 @router.delete("/v1/voices/{name}")

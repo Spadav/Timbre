@@ -339,7 +339,7 @@ function SpeakPage({
   const ttsBackends = backends.filter((backend) => backend.kind === "tts" && backend.enabled);
   const [text, setText] = useState("Hello, this is Timbre speaking through a local voice gateway.");
   const [backend, setBackend] = useState("pocket");
-  const [voice, setVoice] = useState("aria");
+  const [voice, setVoice] = useState("default");
   const [format, setFormat] = useState("wav");
   const [speed, setSpeed] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -1295,7 +1295,7 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
   }' \\
   --output timbre.wav`}
       />
-      <ApiNote text="For TTS, model is the backend name. Use pocket or supertonic when enabled. response_format accepts wav, mp3, opus, ogg, or flac. language and steps are backend-specific fields used by Supertonic." />
+      <ApiNote text="For TTS, model is the backend name. Use pocket, supertonic, or qwen3 when enabled. response_format accepts wav, mp3, opus, ogg, or flac. language and steps are backend-specific fields used by some backends." />
 
       <SectionHeader num="04" title="speech to text" />
       <ApiCode
