@@ -45,7 +45,7 @@ def create_app(config: TimbreConfig | None = None) -> FastAPI:
 
 def _mount_ui(app: FastAPI) -> None:
     project_root = Path(__file__).resolve().parents[2]
-    ui_dist = project_root / "web" / "dist"
+    ui_dist = _ui_dist_path(project_root)
     if ui_dist.exists():
         ui_root = ui_dist.resolve()
 
@@ -60,6 +60,13 @@ def _mount_ui(app: FastAPI) -> None:
         @app.get("/ui/{asset_path:path}", include_in_schema=False)
         async def ui_asset(asset_path: str) -> Response:
             return _ui_file_response(ui_root, asset_path)
+
+
+def _ui_dist_path(project_root: Path) -> Path:
+    source_dist = project_root / "web" / "dist"
+    if source_dist.exists():
+        return source_dist
+    return Path(__file__).resolve().parent / "web" / "dist"
 
 
 def _ui_file_response(root: Path, asset_path: str) -> Response:

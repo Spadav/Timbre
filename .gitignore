@@ -25,7 +25,7 @@ status.md
 *.pth
 *.ckpt
 *.onnx
-voices/
-custom-voices/
-custom_voices/
-timbre-data/
+/voices/
+/custom-voices/
+/custom_voices/
+/timbre-data/
