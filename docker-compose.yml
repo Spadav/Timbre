@@ -1,3 +1,5 @@
+name: timbre
+
 services:
   timbre:
     build: .
