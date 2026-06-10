@@ -1,199 +1,96 @@
 # Timbre
 
-Timbre is an OpenAI-compatible local voice gateway for swappable speech-to-text and
-text-to-speech backends.
+**One process. Every voice backend.**
+
+Timbre is a local voice gateway that unifies your TTS and STT backends behind a single OpenAI-compatible API. Instead of managing separate containers for each service, Timbre imports backends as libraries and serves them from one process, with lazy model loading, automatic unloading, and a built-in management UI.
+
+![Timbre UI](docs/screenshot.png)
+
+## Why Timbre?
+
+Running local voice means juggling PocketTTS on one port, Whisper on another, Parakeet on a third, each in its own container with its own config. Timbre replaces all of that with one URL.
+
+Point your agent, app, or tool at `http://localhost:9000/v1/audio/speech` and pick your backend with the `model` field. That's it.
+
+### Benchmarks
+
+Timbre vs the same backends running as standalone Docker containers. Same hardware, same input, Docker-to-Docker comparison.
+
+| Backend | Task | Standalone | Timbre | Result |
+|---------|------|-----------|--------|--------|
+| PocketTTS | TTS | 2.63s | 0.95s | **64% faster** |
+| Supertonic | TTS | 1.01s | 1.30s | +290ms |
+| Parakeet | STT | 0.27s | 0.26s | **equal** |
+| faster-whisper | STT | 3.48s | 2.32s | **33% faster** |
+
+*Ryzen 9 5950X, CPU inference, 3.3s test audio.*
+
+### Backends
+
+**Text-to-Speech:** PocketTTS (fast, CPU), Supertonic (fast, ONNX), Qwen3 (quality, CUDA)
+
+**Speech-to-Text:** Parakeet (fast, ONNX), faster-whisper (compatible, CTranslate2)
 
 ## Quick Start
 
+### pip
+
 ```bash
-python3.12 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[all,dev]"
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install timbre-voice[all]
 timbre setup
 timbre serve
 ```
 
-Default server: `http://127.0.0.1:9000`
+Server starts at `http://127.0.0.1:9000`. UI at `http://127.0.0.1:9000/ui/`.
+
+### Docker
 
 ```bash
-curl http://127.0.0.1:9000/health
-curl http://127.0.0.1:9000/v1/backends
+docker compose up -d --build
 ```
 
-Web UI: `http://127.0.0.1:9000/ui/`
-
-The UI source lives in `web/` and is served from the compiled `web/dist` assets:
-
-```bash
-cd web
-npm install
-npm run build
-```
-
-## OpenAI-Compatible Endpoints
-
-- `POST /v1/audio/speech`
-- `POST /v1/audio/transcriptions`
-- `GET /v1/models`
-- `GET /v1/voices`
-- `GET /v1/backends`
-- `GET /health`
-
-### Discovery
-
-```bash
-curl http://127.0.0.1:9000/health
-curl http://127.0.0.1:9000/v1/models
-curl http://127.0.0.1:9000/v1/backends
-curl http://127.0.0.1:9000/v1/voices
-```
-
-`model` in speech/transcription requests is the backend name. TTS backends
-include names such as `pocket`, `supertonic`, and `qwen3`; STT backends
-include names such as `parakeet` and `whisper`. The actual backend model
-variant is selected from `/v1/models` or the Models page.
-
-Voice aliases are backend-scoped. For example, Timbre can accept
-`{"model":"supertonic","voice":"alloy"}` and resolve that alias to the native
-Supertonic voice configured for it, such as `F1`.
-
-### Model Management
-
-Models are stored under `~/.config/timbre/models/`.
-
-```bash
-# List available model profiles and install state.
-curl http://127.0.0.1:9000/v1/models
-
-# Download a model profile into Timbre's model folder.
-curl http://127.0.0.1:9000/v1/models/parakeet:int8 \
-  -H "content-type: application/json" \
-  -d '{"action":"download"}'
-
-# Set the backend's active model profile.
-curl http://127.0.0.1:9000/v1/models/whisper:small \
-  -H "content-type: application/json" \
-  -d '{"action":"set_active"}'
-```
-
-CLI equivalent:
-
-```bash
-timbre download-models --model parakeet:int8 --set-default
-timbre download-models --model whisper:small --set-default
-```
-
-Qwen3 is optional and disabled by default because it is CUDA-focused and pulls
-heavy dependencies:
-
-```bash
-pip install -e ".[qwen3]"
-timbre download-models --model qwen3:0.6b-customvoice --set-default
-```
-
-CustomVoice profiles use Qwen's built-in voices such as `Vivian`. Base profiles
-are intended for uploaded cloned voice references.
-
-For multi-GPU systems, set Qwen's backend device in Config to an explicit GPU
-such as `cuda:1`, or leave it as `cuda:auto` to choose the visible CUDA device
-with the most free memory. This avoids accidentally loading Qwen on display GPU
-0 when a larger secondary GPU is available. You can also constrain visibility at
-the process level with `CUDA_VISIBLE_DEVICES`.
-
-For best Qwen throughput, install Flash Attention after Torch is installed:
-
-```bash
-pip install flash-attn --no-build-isolation
-```
-
-Timbre tries `flash_attention_2` first, then falls back to `sdpa` and `eager` if
-Flash Attention is unavailable.
-
-CUDA Docker build:
+For Qwen3 / CUDA:
 
 ```bash
 docker compose -f docker-compose.cuda.yml up -d --build
 ```
 
-The CUDA image uses an NVIDIA CUDA `devel` base instead of a `runtime` base so
-Flash Attention can build with `nvcc`. It pins Torch/Torchaudio to CUDA 12.6
-before installing `flash-attn`.
-
-To expose only one GPU to Timbre, pass a Docker/NVIDIA visible device value:
+### Verify
 
 ```bash
-TIMBRE_NVIDIA_VISIBLE_DEVICES=GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
-  docker compose -f docker-compose.cuda.yml up -d --build
+curl http://127.0.0.1:9000/health
+curl http://127.0.0.1:9000/v1/backends
 ```
 
-Inside that restricted container, `cuda:auto` picks the visible GPU with the
-most free memory.
+## Usage
 
-### Text to Speech
+### Text-to-Speech
 
 ```bash
 curl http://127.0.0.1:9000/v1/audio/speech \
   -H "content-type: application/json" \
-  -d '{
-    "model": "pocket",
-    "input": "Hello from Timbre.",
-    "voice": "default",
-    "response_format": "wav",
-    "speed": 1.0,
-    "language": "en",
-    "steps": 8
-  }' \
-  --output timbre.wav
+  -d '{"model":"pocket","input":"Hello from Timbre.","voice":"alba"}' \
+  --output speech.wav
 ```
 
-Qwen3 example:
+Switch backends by changing `model`: `pocket`, `supertonic`, or `qwen3`.
 
-```bash
-curl http://127.0.0.1:9000/v1/audio/speech \
-  -H "content-type: application/json" \
-  -d '{
-    "model": "qwen3",
-    "input": "Hello from Timbre through Qwen.",
-    "voice": "Vivian",
-    "response_format": "wav"
-  }' \
-  --output qwen.wav
-```
+Supported output formats: `wav`, `mp3`, `opus`, `ogg`, `flac`.
 
-`response_format` accepts `wav`, `mp3`, `opus`, `ogg`, or `flac`. `language`
-and `steps` are backend-specific fields used by Supertonic.
-
-### Speech to Text
+### Speech-to-Text
 
 ```bash
 curl http://127.0.0.1:9000/v1/audio/transcriptions \
   -F model=parakeet \
-  -F file=@sample.wav
+  -F file=@recording.wav
 ```
 
-Optional form fields: `language` and `prompt`.
+Switch backends: `parakeet` or `whisper`.
 
-### Backend Control
+### Voice Cloning
 
-Use `tts` for text-to-speech backends and `stt` for speech-to-text backends.
-`load` and `unload` affect runtime memory. `enable` and `disable` update config
-and rebuild the backend manager.
-
-```bash
-curl http://127.0.0.1:9000/v1/backends/tts/pocket \
-  -H "content-type: application/json" \
-  -d '{"action":"load"}'
-
-curl http://127.0.0.1:9000/v1/backends/stt/parakeet \
-  -H "content-type: application/json" \
-  -d '{"action":"unload"}'
-
-curl http://127.0.0.1:9000/v1/backends/tts/supertonic \
-  -H "content-type: application/json" \
-  -d '{"action":"disable"}'
-```
-
-### Voices and Config
+Upload a 5-10 second reference clip and use it by name:
 
 ```bash
 curl http://127.0.0.1:9000/v1/voices \
@@ -201,27 +98,125 @@ curl http://127.0.0.1:9000/v1/voices \
   -F backend=pocket \
   -F precompute=true \
   -F file=@reference.wav
+```
 
-curl http://127.0.0.1:9000/v1/voices/my_voice/reference --output reference.wav
-curl -X DELETE http://127.0.0.1:9000/v1/voices/my_voice
-
-curl http://127.0.0.1:9000/v1/voices/aliases \
+```bash
+curl http://127.0.0.1:9000/v1/audio/speech \
   -H "content-type: application/json" \
-  -d '{"backend":"supertonic","alias":"alloy","target":"F1"}'
+  -d '{"model":"pocket","input":"Speaking in a cloned voice.","voice":"my_voice"}' \
+  --output cloned.wav
+```
 
-curl -X DELETE http://127.0.0.1:9000/v1/voices/aliases/supertonic/alloy
+### Voice Aliases
 
+Timbre maps OpenAI voice names to native backend voices, so existing clients work without changes:
+
+```bash
+curl http://127.0.0.1:9000/v1/audio/speech \
+  -H "content-type: application/json" \
+  -d '{"model":"supertonic","input":"Hello.","voice":"alloy"}' \
+  --output hello.wav
+```
+
+`alloy` resolves to Supertonic's `F1`. Default aliases: alloy/F1, echo/M1, fable/M2, nova/F2, onyx/M3, shimmer/F3. Custom aliases can be created through the API or UI.
+
+## Features
+
+**Lazy loading with TTL.** Models load on first request and unload after a configurable idle timeout. The server is always reachable; only model weights cycle in and out of memory.
+
+**Backend management.** Enable, disable, load, and unload backends at runtime through the API or UI without restarting the server.
+
+```bash
+curl http://127.0.0.1:9000/v1/backends/tts/pocket \
+  -H "content-type: application/json" \
+  -d '{"action":"load"}'
+```
+
+**Model profiles.** Download and switch between model variants per backend.
+
+```bash
+timbre download-models --model whisper:small --set-default
+timbre download-models --model parakeet:int8 --set-default
+```
+
+**Config API.** View and update configuration at runtime.
+
+```bash
 curl http://127.0.0.1:9000/v1/config
 curl -X PUT http://127.0.0.1:9000/v1/config \
   -H "content-type: application/json" \
   -d @config.json
 ```
 
-## Package Names
+## Qwen3 (Optional, CUDA)
 
-- GitHub: `Spadav/Timbre`
-- PyPI: `timbre-voice`
-- Python import: `timbre`
-- CLI: `timbre serve`, `timbre setup`, `timbre download-models`
-- Docker: `spadav/timbre`
-- Config: `~/.config/timbre/config.yaml`
+Qwen3 is disabled by default. It requires a CUDA GPU and pulls heavy dependencies.
+
+```bash
+pip install timbre-voice[qwen3]
+timbre download-models --model qwen3:0.6b-customvoice --set-default
+```
+
+Enable it through the UI or API, then:
+
+```bash
+curl http://127.0.0.1:9000/v1/audio/speech \
+  -H "content-type: application/json" \
+  -d '{"model":"qwen3","input":"Hello from Qwen.","voice":"Vivian"}' \
+  --output qwen.wav
+```
+
+For multi-GPU systems, set the device to `cuda:auto` (picks the GPU with most free VRAM), or pin a specific GPU with `cuda:0`, `cuda:1`, etc.
+
+For best throughput, install Flash Attention:
+
+```bash
+pip install flash-attn --no-build-isolation
+```
+
+CUDA Docker handles this automatically.
+
+## Configuration
+
+Config lives at `~/.config/timbre/config.yaml`. Edit it directly, through the UI Config page, or through the API. Changes to backends, TTL, and device settings apply immediately. Host/port changes require a restart.
+
+## Development
+
+```bash
+git clone https://github.com/Spadav/Timbre.git
+cd Timbre
+python3.12 -m venv .venv && . .venv/bin/activate
+pip install -e ".[all,dev]"
+cd web && npm install && npm run build && cd ..
+timbre serve
+```
+
+Run tests:
+
+```bash
+ruff check .
+pytest -q
+```
+
+## Architecture
+
+Timbre is not a wrapper around existing audio servers. Each backend is imported as a Python library and called directly. The API surface, routing, TTL management, voice system, and UI are all original code. The backends are dependencies, like numpy or torch.
+
+```
+Request -> FastAPI Router -> Backend Manager -> Backend ABC -> Library Call
+                                  |
+                            TTL Manager (load/unload weights)
+```
+
+Adding a new backend means implementing a simple ABC (TTSBackend or STTBackend) and registering it. The router and API never change.
+
+## License
+
+Timbre's source code is MIT licensed. Backend model weights are subject to their
+own licenses (see each backend's documentation).
+
+## Links
+
+- GitHub: [Spadav/Timbre](https://github.com/Spadav/Timbre)
+- PyPI: [timbre-voice](https://pypi.org/project/timbre-voice/)
+- Docker Hub: [spadav/timbre](https://hub.docker.com/r/spadav/timbre)
