@@ -13,17 +13,7 @@
   const API = "/api/plugins/hermes-timbre";
 
   async function fetchJSON(path, options) {
-    const response = await fetch(API + path, options || {});
-    const text = await response.text();
-    let payload = {};
-    if (text) {
-      try { payload = JSON.parse(text); }
-      catch (_err) { payload = { detail: text }; }
-    }
-    if (!response.ok) {
-      throw new Error(payload.detail || response.statusText || "Request failed");
-    }
-    return payload;
+    return SDK.fetchJSON(API + path, options || {});
   }
 
   function Badge(props) {
