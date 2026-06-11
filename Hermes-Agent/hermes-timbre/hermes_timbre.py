@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import shlex
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -98,7 +99,10 @@ def normalize_url(url: str) -> str:
 def _endpoint(path: str, config: TimbreConfig | None = None) -> str:
     config = config or TimbreConfig.load()
     if not config.url:
-        raise RuntimeError("Timbre is not configured. Run /timbre <url> to connect.")
+        raise RuntimeError(
+            "Timbre is not configured. Run `hermes timbre setup <url>` in a terminal "
+            "or `/timbre <url>` inside a Hermes chat session."
+        )
     return config.url + path
 
 
@@ -201,6 +205,50 @@ def _filter_backend_names(backends: list[dict[str, Any]], kind: str) -> list[str
         for item in backends
         if item.get("kind") == kind and item.get("enabled", True)
     ]
+
+
+def _voice_names(voices: list[dict[str, Any]], backend: str) -> list[str]:
+    names: list[str] = []
+    for item in voices:
+        item_backend = item.get("backend")
+        if item_backend and item_backend != backend:
+            continue
+        name = str(item.get("name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _choose_from_list(
+    *,
+    label: str,
+    choices: list[str],
+    default: str,
+    allow_custom: bool = False,
+) -> str:
+    if not choices:
+        if allow_custom:
+            value = input(f"{label} [{default}]: ").strip()
+            return value or default
+        return default
+
+    fallback = default if default in choices else choices[0]
+    print(f"\n{label}:")
+    for index, choice in enumerate(choices, start=1):
+        suffix = " (default)" if choice == fallback else ""
+        print(f"  {index}. {choice}{suffix}")
+
+    while True:
+        value = input(f"Choose {label.lower()} [{fallback}]: ").strip()
+        if not value:
+            return fallback
+        if value.isdigit():
+            choice_index = int(value)
+            if 1 <= choice_index <= len(choices):
+                return choices[choice_index - 1]
+        if value in choices or allow_custom:
+            return value
+        print(f"Invalid {label.lower()}: {value}")
 
 
 class TimbreTTSProvider(TTSProvider):
@@ -380,7 +428,10 @@ def handle_timbre_command(raw: Any = "", **kwargs: Any) -> str:
     config = TimbreConfig.load()
 
     if not command:
-        return "Usage: /timbre <url> [--tts pocket] [--stt parakeet] [--voice alba]"
+        return (
+            "Usage: `hermes timbre setup <url> [--tts pocket] [--stt parakeet] "
+            "[--voice alba]` or `/timbre <url>` inside a Hermes chat session."
+        )
 
     if command == "status":
         return timbre_status(config)
@@ -401,15 +452,119 @@ def handle_timbre_command(raw: Any = "", **kwargs: Any) -> str:
     except Exception as exc:
         return f"Could not connect to Timbre at {config.url}: {_http_error_message(exc)}"
 
+    tts_names = _filter_backend_names(backends, "tts")
+    stt_names = _filter_backend_names(backends, "stt")
+    if config.tts_backend not in tts_names:
+        return (
+            f"Unknown Timbre TTS backend '{config.tts_backend}'. "
+            f"Available TTS: {', '.join(tts_names) or 'none'}."
+        )
+    if config.stt_backend not in stt_names:
+        return (
+            f"Unknown Timbre STT backend '{config.stt_backend}'. "
+            f"Available STT: {', '.join(stt_names) or 'none'}."
+        )
+
     config.save()
     config_result = set_hermes_voice_providers()
-    tts_names = ", ".join(_filter_backend_names(backends, "tts")) or "none"
-    stt_names = ", ".join(_filter_backend_names(backends, "stt")) or "none"
+    tts_available = ", ".join(tts_names) or "none"
+    stt_available = ", ".join(stt_names) or "none"
     return (
         f"Connected to Timbre at {config.url}. "
-        f"Available TTS: {tts_names}. Available STT: {stt_names}. "
+        f"Available TTS: {tts_available}. Available STT: {stt_available}. "
         f"Default TTS backend: {config.tts_backend}. "
         f"Default STT backend: {config.stt_backend}. "
+        f"Default voice: {config.voice}. "
+        f"{config_result}"
+    )
+
+
+def run_setup(
+    *,
+    url: str = "",
+    tts_backend: str = "",
+    stt_backend: str = "",
+    voice: str = "",
+    interactive: bool | None = None,
+) -> str:
+    interactive = sys.stdin.isatty() if interactive is None else interactive
+    saved = TimbreConfig.load()
+
+    if interactive and not url:
+        prompt_default = saved.url or "http://127.0.0.1:9000"
+        url = input(f"Timbre URL [{prompt_default}]: ").strip() or prompt_default
+
+    if not url:
+        return "Missing URL. Use `hermes timbre setup <url>` or run interactively."
+
+    config = TimbreConfig(
+        url=url,
+        tts_backend=tts_backend or saved.tts_backend,
+        stt_backend=stt_backend or saved.stt_backend,
+        voice=voice or saved.voice,
+    )
+
+    try:
+        _request_json(_endpoint("/health", config), timeout=5.0)
+        backends = _backends(config)
+        voices = _voices(config)
+    except Exception as exc:
+        return f"Could not connect to Timbre at {config.url}: {_http_error_message(exc)}"
+
+    tts_names = _filter_backend_names(backends, "tts")
+    stt_names = _filter_backend_names(backends, "stt")
+    if not tts_names:
+        return f"Timbre at {config.url} returned no enabled TTS backends."
+    if not stt_names:
+        return f"Timbre at {config.url} returned no enabled STT backends."
+
+    if interactive and not tts_backend:
+        config.tts_backend = _choose_from_list(
+            label="TTS backend",
+            choices=tts_names,
+            default=config.tts_backend,
+        )
+    elif config.tts_backend not in tts_names:
+        return (
+            f"Unknown Timbre TTS backend '{config.tts_backend}'. "
+            f"Available TTS: {', '.join(tts_names)}."
+        )
+
+    if interactive and not stt_backend:
+        config.stt_backend = _choose_from_list(
+            label="STT backend",
+            choices=stt_names,
+            default=config.stt_backend,
+        )
+    elif config.stt_backend not in stt_names:
+        return (
+            f"Unknown Timbre STT backend '{config.stt_backend}'. "
+            f"Available STT: {', '.join(stt_names)}."
+        )
+
+    voice_names = _voice_names(voices, config.tts_backend)
+    if interactive and not voice:
+        config.voice = _choose_from_list(
+            label="TTS voice",
+            choices=voice_names,
+            default=config.voice,
+            allow_custom=True,
+        )
+    elif voice_names and config.voice not in voice_names:
+        return (
+            f"Unknown Timbre voice '{config.voice}' for backend '{config.tts_backend}'. "
+            f"Available voices: {', '.join(voice_names[:40])}."
+        )
+
+    config.save()
+    config_result = set_hermes_voice_providers()
+    return (
+        f"Connected to Timbre at {config.url}.\n"
+        f"TTS backend: {config.tts_backend}\n"
+        f"STT backend: {config.stt_backend}\n"
+        f"TTS voice: {config.voice}\n"
+        f"Available TTS: {', '.join(tts_names)}\n"
+        f"Available STT: {', '.join(stt_names)}\n"
         f"{config_result}"
     )
 
@@ -417,7 +572,10 @@ def handle_timbre_command(raw: Any = "", **kwargs: Any) -> str:
 def timbre_status(config: TimbreConfig | None = None) -> str:
     config = config or TimbreConfig.load()
     if not config.url:
-        return "Timbre is not configured. Run /timbre <url> to connect."
+        return (
+            "Timbre is not configured. Run `hermes timbre setup <url>` in a terminal "
+            "or `/timbre <url>` inside a Hermes chat session."
+        )
     try:
         health = _request_json(_endpoint("/health", config), timeout=5.0)
         status = health.get("status", "unknown")
@@ -479,32 +637,41 @@ def set_hermes_voice_providers() -> str:
 
 
 def register_cli(parser: Any) -> None:
+    parser.set_defaults(func=handle_cli)
     subcommands = parser.add_subparsers(dest="timbre_command")
 
     setup = subcommands.add_parser("setup", help="Connect Hermes to a Timbre server")
-    setup.add_argument("url")
+    setup.add_argument("url", nargs="?")
     setup.add_argument("--tts", default="")
     setup.add_argument("--stt", default="")
     setup.add_argument("--voice", default="")
+    setup.set_defaults(func=handle_cli, timbre_command="setup")
 
-    subcommands.add_parser("status", help="Show Timbre connection status")
-    subcommands.add_parser("backends", help="List Timbre backends")
+    status = subcommands.add_parser("status", help="Show Timbre connection status")
+    status.set_defaults(func=handle_cli, timbre_command="status")
+
+    backends = subcommands.add_parser("backends", help="List Timbre backends")
+    backends.set_defaults(func=handle_cli, timbre_command="backends")
 
 
 def handle_cli(args: Any) -> str:
     command = getattr(args, "timbre_command", None)
     if command == "setup":
-        raw = getattr(args, "url", "")
-        if getattr(args, "tts", ""):
-            raw += f" --tts {shlex.quote(args.tts)}"
-        if getattr(args, "stt", ""):
-            raw += f" --stt {shlex.quote(args.stt)}"
-        if getattr(args, "voice", ""):
-            raw += f" --voice {shlex.quote(args.voice)}"
-        return handle_timbre_command(raw)
+        result = run_setup(
+            url=getattr(args, "url", "") or "",
+            tts_backend=getattr(args, "tts", "") or "",
+            stt_backend=getattr(args, "stt", "") or "",
+            voice=getattr(args, "voice", "") or "",
+        )
+        print(result)
+        return result
     if command == "backends":
-        return timbre_backends()
-    return timbre_status()
+        result = timbre_backends()
+        print(result)
+        return result
+    result = timbre_status()
+    print(result)
+    return result
 
 
 def register(ctx: Any) -> None:
@@ -534,6 +701,3 @@ def register(ctx: Any) -> None:
             )
         except TypeError:
             pass
-
-    if not TimbreConfig.load().url:
-        print("Timbre not configured. Run /timbre <url> to connect.")

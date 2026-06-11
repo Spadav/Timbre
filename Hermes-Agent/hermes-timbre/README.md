@@ -25,6 +25,14 @@ hermes plugins enable hermes-timbre
 Preferred terminal setup:
 
 ```bash
+hermes timbre setup
+```
+
+The setup flow asks for the Timbre URL, TTS backend, STT backend, and voice.
+
+Non-interactive setup:
+
+```bash
 hermes timbre setup http://127.0.0.1:9000 --tts pocket --stt parakeet --voice alba
 ```
 
