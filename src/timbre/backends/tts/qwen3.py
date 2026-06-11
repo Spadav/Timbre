@@ -131,7 +131,7 @@ class Qwen3Backend(TTSBackend):
         cloned = _cloned_voices(self.voices_dir)
         if _model_type(self.config) == "base":
             return cloned
-        return sorted(set(DEFAULT_QWEN3_VOICES + cloned))
+        return sorted(DEFAULT_QWEN3_VOICES)
 
     def _generate_cloned(
         self,

@@ -259,7 +259,7 @@ def _profile_installed(profile: ModelProfile) -> bool:
 def _profile_active(config: TimbreConfig, profile: ModelProfile) -> bool:
     group = config.tts if profile.kind == "tts" else config.stt
     backend = group.backends.get(profile.backend)
-    if backend is None or group.default != profile.backend:
+    if backend is None:
         return False
     return all(
         backend.options.get(key) == value

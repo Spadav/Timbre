@@ -79,19 +79,20 @@ async def control_model(profile_id: str, payload: ModelAction, request: Request)
 @router.get("/v1/voices")
 async def voices(request: Request) -> dict[str, object]:
     store = request.app.state.voice_store
+    backend_voices = request.app.state.manager.all_voices()
     cloned = [
         {
             "name": record.name,
             "type": "cloned",
             "audio_path": str(record.audio_path) if record.audio_path else None,
-            "prepared_backends": sorted(_backend_from_cache(path.name) for path in record.caches),
+            "prepared_backends": _prepared_backends(record.name, record.caches, backend_voices),
         }
         for record in store.list()
     ]
     cloned_names = {record["name"] for record in cloned}
     presets = [
         {"name": voice, "backend": backend, "type": "preset"}
-        for backend, voices_for_backend in request.app.state.manager.all_voices().items()
+        for backend, voices_for_backend in backend_voices.items()
         for voice in voices_for_backend
         if voice not in cloned_names
     ]
@@ -105,6 +106,14 @@ async def voices(request: Request) -> dict[str, object]:
 
 def _backend_from_cache(filename: str) -> str:
     return filename.split(".", 1)[0]
+
+
+def _prepared_backends(name: str, caches: list[Any], backend_voices: dict[str, list[str]]) -> list[str]:
+    prepared = {_backend_from_cache(path.name) for path in caches}
+    for backend, voices_for_backend in backend_voices.items():
+        if name in voices_for_backend:
+            prepared.add(backend)
+    return sorted(prepared)
 
 
 @router.get("/v1/config")

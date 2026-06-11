@@ -675,7 +675,7 @@ function BackendsPage({ backends, onRefresh }: { backends: Backend[]; onRefresh:
 function ModelsPage({ models, onRefresh }: { models: ModelRecord[]; onRefresh: () => void }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const groups = ["pocket", "supertonic", "whisper", "parakeet"]
+  const groups = ["pocket", "supertonic", "qwen3", "whisper", "parakeet"]
     .map((backend) => ({ backend, models: models.filter((item) => item.backend === backend) }))
     .filter((group) => group.models.length > 0);
 
