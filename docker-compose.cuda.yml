@@ -13,7 +13,14 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-${HF_TOKEN:-}}
-    gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids:
+                - ${TIMBRE_NVIDIA_VISIBLE_DEVICES:-all}
+              capabilities: [gpu]
     volumes:
       - timbre-data:/root/.config/timbre
       - ${HOME}/.cache/huggingface:/root/.cache/huggingface
