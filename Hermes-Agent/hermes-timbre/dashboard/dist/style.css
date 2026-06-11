@@ -63,6 +63,51 @@
   border-color: var(--color-ring);
 }
 
+.timbre-dashboard__field {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+}
+
+.timbre-dashboard__select,
+.timbre-dashboard__input {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  border-radius: calc(var(--radius) * 0.75);
+  padding: 7px 9px;
+  font-size: 13px;
+}
+
+.timbre-dashboard__voice-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 10px 0;
+}
+
+.timbre-dashboard__voice-chip {
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.timbre-dashboard__voice-chip:hover {
+  border-color: var(--color-ring);
+}
+
+.timbre-dashboard__voice-chip--active {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
 .timbre-dashboard__badge {
   display: inline-flex;
   align-items: center;
