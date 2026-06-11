@@ -22,11 +22,34 @@ hermes plugins enable hermes-timbre
 
 ## Configure
 
+Preferred terminal setup:
+
+```bash
+hermes timbre setup http://127.0.0.1:9000 --tts pocket --stt parakeet --voice alba
+```
+
+Alias:
+
+```bash
+hermes hermes-timbre setup http://127.0.0.1:9000 --tts pocket --stt parakeet --voice alba
+```
+
+Status:
+
+```bash
+hermes timbre status
+hermes timbre backends
+```
+
+The in-session commands are also registered when Hermes exposes plugin slash
+commands:
+
 Inside Hermes:
 
 ```text
 /timbre http://127.0.0.1:9000
 /timbre http://100.112.50.55:9000 --tts pocket --stt parakeet --voice alba
+/hermes-timbre status
 ```
 
 The command checks `/health`, discovers `/v1/backends`, saves the plugin config
@@ -37,21 +60,6 @@ tts:
   provider: timbre
 stt:
   provider: timbre
-```
-
-Status commands:
-
-```text
-/timbre status
-/timbre backends
-```
-
-Optional CLI commands, if supported by your Hermes build:
-
-```bash
-hermes timbre setup http://127.0.0.1:9000 --tts pocket --stt parakeet
-hermes timbre status
-hermes timbre backends
 ```
 
 ## Environment Overrides

@@ -510,11 +510,28 @@ def handle_cli(args: Any) -> str:
 def register(ctx: Any) -> None:
     ctx.register_tts_provider(TimbreTTSProvider())
     ctx.register_transcription_provider(TimbreTranscriptionProvider())
-    ctx.register_command("timbre", handle_timbre_command, "Configure and inspect Timbre voice gateway")
+    ctx.register_command(
+        "timbre",
+        handle_timbre_command,
+        "Configure and inspect Timbre voice gateway",
+        args_hint="<url|status|backends>",
+    )
+    ctx.register_command(
+        "hermes-timbre",
+        handle_timbre_command,
+        "Configure and inspect Timbre voice gateway",
+        args_hint="<url|status|backends>",
+    )
 
     if hasattr(ctx, "register_cli_command"):
         try:
             ctx.register_cli_command("timbre", "Configure Timbre voice gateway", register_cli, handle_cli)
+            ctx.register_cli_command(
+                "hermes-timbre",
+                "Configure Timbre voice gateway",
+                register_cli,
+                handle_cli,
+            )
         except TypeError:
             pass
 
