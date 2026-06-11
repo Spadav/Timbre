@@ -15,6 +15,10 @@ build/
 *.egg-info/
 .env
 status.md
+Hermes-Agent/
+UI/
+screenshot.png
+timbre-codex-ui-task.md
 /local/
 *.wav
 *.mp3

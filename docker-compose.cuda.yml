@@ -11,9 +11,12 @@ services:
     environment:
       NVIDIA_VISIBLE_DEVICES: ${TIMBRE_NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-${HF_TOKEN:-}}
     gpus: all
     volumes:
       - timbre-data:/root/.config/timbre
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
 
 volumes:
   timbre-data:

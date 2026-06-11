@@ -159,6 +159,19 @@ const api = {
     const body = await res.json();
     return body.data;
   },
+  async prepareVoice(name: string, backend: string): Promise<unknown> {
+    const form = new FormData();
+    form.append("backend", backend);
+    const res = await fetch(`/v1/voices/${encodeURIComponent(name)}/prepare`, {
+      method: "POST",
+      body: form
+    });
+    if (!res.ok) {
+      const body = await safeJson(res);
+      throw new Error(body.detail || `voice prepare failed: ${res.status}`);
+    }
+    return res.json();
+  },
   async backendAction(kind: Backend["kind"], name: string, action: "load" | "unload" | "enable" | "disable"): Promise<Backend[]> {
     const res = await fetch(`/v1/backends/${kind}/${encodeURIComponent(name)}`, {
       method: "POST",
@@ -735,11 +748,14 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   const [name, setName] = useState("");
   const [backend, setBackend] = useState("pocket");
   const [file, setFile] = useState<File | null>(null);
+  const [precompute, setPrecompute] = useState(true);
+  const [prepareBackend, setPrepareBackend] = useState("pocket");
   const [aliasBackend, setAliasBackend] = useState("supertonic");
   const [aliasName, setAliasName] = useState("");
   const [aliasTarget, setAliasTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [aliasBusy, setAliasBusy] = useState(false);
+  const [prepareBusy, setPrepareBusy] = useState("");
   const [loadingPreview, setLoadingPreview] = useState("");
   const [activePreview, setActivePreview] = useState("");
   const [error, setError] = useState("");
@@ -772,13 +788,17 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
     const form = new FormData();
     form.append("name", name.trim());
     form.append("backend", backend);
-    form.append("precompute", "true");
+    form.append("precompute", precompute ? "true" : "false");
     form.append("file", file);
     try {
       const res = await fetch("/v1/voices", { method: "POST", body: form });
       if (!res.ok) {
         const body = await safeJson(res);
         throw new Error(body.detail || `upload failed: ${res.status}`);
+      }
+      const body = await res.json();
+      if (body.precompute_error) {
+        setError(`Voice saved, but precompute failed: ${body.precompute_error}`);
       }
       setName("");
       setFile(null);
@@ -820,6 +840,19 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
       onRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "alias delete failed");
+    }
+  }
+
+  async function prepare(voice: Voice) {
+    setPrepareBusy(voice.name);
+    setError("");
+    try {
+      await api.prepareVoice(voice.name, prepareBackend);
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "voice prepare failed");
+    } finally {
+      setPrepareBusy("");
     }
   }
 
@@ -882,6 +915,10 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
           <Upload size={15} />
           {file ? file.name : "Reference"}
           <input hidden type="file" accept="audio/*,.json" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+        </label>
+        <label className="toggle-row clone-toggle">
+          <input type="checkbox" checked={precompute} onChange={(event) => setPrecompute(event.target.checked)} />
+          <span>Precompute</span>
         </label>
         <button className="primary-btn" disabled={busy || !name || !file}>
           {busy ? "Processing" : "Create"}
@@ -948,7 +985,19 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
         ))}
       </div>
 
-      <SectionHeader num="03" title="cloned" right={`${cloned.length}`} />
+      <SectionHeader
+        num="03"
+        title="cloned"
+        right={
+          <select value={prepareBackend} onChange={(event) => setPrepareBackend(event.target.value)}>
+            {(ttsBackends.length ? ttsBackends : ["pocket", "supertonic"]).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        }
+      />
       <div className="voice-grid">
         {cloned.map((voice) => (
           <div className="voice-card" key={voice.name}>
@@ -966,7 +1015,15 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
                   ? "..."
                   : activePreview === `clone:${voice.name}`
                     ? "Stop"
-                    : "Preview"}
+                  : "Preview"}
+              </button>
+              <button
+                className="small-btn"
+                onClick={() => prepare(voice)}
+                disabled={prepareBusy !== "" || voice.prepared_backends?.includes(prepareBackend)}
+                title="Prepare voice"
+              >
+                {prepareBusy === voice.name ? "..." : "Prepare"}
               </button>
               <button className="small-btn danger" onClick={() => remove(voice.name)}>
                 <Trash2 size={13} />
@@ -1728,7 +1785,7 @@ function BackendGroup({
   );
 }
 
-function SectionHeader({ num, title, right }: { num: string; title: string; right?: string }) {
+function SectionHeader({ num, title, right }: { num: string; title: string; right?: React.ReactNode }) {
   return (
     <div className="sec-header">
       <span>

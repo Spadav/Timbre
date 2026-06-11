@@ -6,8 +6,12 @@ services:
     image: spadav/timbre:latest
     ports:
       - "9000:9000"
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-${HF_TOKEN:-}}
     volumes:
       - timbre-data:/root/.config/timbre
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
 
 volumes:
   timbre-data:

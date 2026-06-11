@@ -861,6 +861,11 @@ button {
   max-width: 180px;
 }
 
+.clone-form .clone-toggle input {
+  min-height: auto;
+  padding: 0;
+}
+
 .voice-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
