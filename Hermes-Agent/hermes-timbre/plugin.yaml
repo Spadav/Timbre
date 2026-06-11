@@ -1,0 +1,17 @@
+name: hermes-timbre
+version: "1.0.0"
+description: Connect Hermes to a Timbre voice gateway for local TTS and STT
+provides:
+  - tts_provider:timbre
+  - transcription_provider:timbre
+  - command:timbre
+  - cli:timbre
+optional_env:
+  - name: TIMBRE_URL
+    description: Timbre server URL, for example http://127.0.0.1:9000
+  - name: TIMBRE_TTS_BACKEND
+    description: Default Timbre TTS backend, for example pocket or supertonic
+  - name: TIMBRE_STT_BACKEND
+    description: Default Timbre STT backend, for example parakeet or whisper
+  - name: TIMBRE_TTS_VOICE
+    description: Default Timbre TTS voice, for example alba

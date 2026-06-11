@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes-timbre"
+version = "1.0.0"
+description = "Hermes Agent plugin for Timbre voice gateway"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Spadav" }]
+dependencies = []
+
+[project.entry-points."hermes_agent.plugins"]
+hermes-timbre = "hermes_timbre"
+
+[tool.hatch.build.targets.wheel]
+py-modules = ["hermes_timbre"]
