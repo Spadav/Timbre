@@ -25,6 +25,7 @@ QWEN3_MODEL_REPOS = {
     "0.6b-base": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
     "0.6b-customvoice": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
     "1.7b-base": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "1.7b-voicedesign": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     "1.7b-customvoice": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
 }
 
@@ -122,16 +123,153 @@ class Qwen3Backend(TTSBackend):
 
         return await asyncio.to_thread(run)
 
+    async def prepare_clone_reference(
+        self,
+        voice: str,
+        reference: Path,
+        *,
+        ref_text: str | None = None,
+        x_vector_only_mode: bool | None = None,
+    ) -> dict[str, str]:
+        await self.ensure_loaded()
+
+        def run() -> dict[str, str]:
+            if _model_type(self.config) != "base":
+                raise BackendUnavailable(
+                    "Qwen3 clone preparation requires an active Base model profile. "
+                    "Set qwen3:0.6b-base or qwen3:1.7b-base active first."
+                )
+            model = self._model
+            if model is None:
+                raise BackendUnavailable("Qwen3 backend is not loaded.")
+            prompt = self._voice_prompt_for_reference(
+                model,
+                reference,
+                cache_prefix=voice,
+                ref_text=ref_text,
+                x_vector_only_mode=x_vector_only_mode,
+            )
+            return {
+                "backend": self.name,
+                "voice": voice,
+                "source": str(reference),
+                "cache": f"memory:{id(prompt)}",
+                "status": "ready",
+            }
+
+        return await asyncio.to_thread(run)
+
+    async def synthesize_clone(
+        self,
+        text: str,
+        reference: Path,
+        *,
+        language: str = "Auto",
+        speed: float = 1.0,
+        ref_text: str | None = None,
+        x_vector_only_mode: bool | None = None,
+    ) -> bytes:
+        await self.ensure_loaded()
+
+        def run() -> bytes:
+            model = self._model
+            if model is None:
+                raise BackendUnavailable("Qwen3 backend is not loaded.")
+            if _model_type(self.config) != "base":
+                raise BackendUnavailable(
+                    "Qwen3 clone mode requires an active Base model profile. "
+                    "Set qwen3:0.6b-base or qwen3:1.7b-base active first."
+                )
+            with self._generation_lock:
+                prompt = self._voice_prompt_for_reference(
+                    model,
+                    reference,
+                    ref_text=ref_text,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
+                wavs, sample_rate = model.generate_voice_clone(
+                    text=text,
+                    language=language,
+                    voice_clone_prompt=prompt,
+                )
+            return pcm_wav_bytes(_apply_speed(wavs[0], speed), int(sample_rate))
+
+        return await asyncio.to_thread(run)
+
+    async def synthesize_custom_voice(
+        self,
+        text: str,
+        speaker: str,
+        *,
+        language: str = "Auto",
+        instruct: str | None = None,
+        speed: float = 1.0,
+    ) -> bytes:
+        await self.ensure_loaded()
+
+        def run() -> bytes:
+            model = self._model
+            if model is None:
+                raise BackendUnavailable("Qwen3 backend is not loaded.")
+            if _model_type(self.config) != "customvoice":
+                raise BackendUnavailable(
+                    "Qwen3 CustomVoice mode requires an active CustomVoice model profile. "
+                    "Set qwen3:0.6b-customvoice or qwen3:1.7b-customvoice active first."
+                )
+            with self._generation_lock:
+                audio, sample_rate = _generate_native(
+                    model,
+                    text,
+                    speaker,
+                    language,
+                    instruct,
+                    speed,
+                )
+            return pcm_wav_bytes(audio, sample_rate)
+
+        return await asyncio.to_thread(run)
+
+    async def synthesize_voice_design(
+        self,
+        text: str,
+        instruct: str,
+        *,
+        language: str = "Auto",
+        speed: float = 1.0,
+    ) -> bytes:
+        await self.ensure_loaded()
+
+        def run() -> bytes:
+            model = self._model
+            if model is None:
+                raise BackendUnavailable("Qwen3 backend is not loaded.")
+            if _model_type(self.config) != "voice_design":
+                raise BackendUnavailable(
+                    "Qwen3 VoiceDesign mode requires the active VoiceDesign model profile. "
+                    "Set qwen3:1.7b-voicedesign active first."
+                )
+            with self._generation_lock:
+                try:
+                    wavs, sample_rate = model.generate_voice_design(
+                        text=text,
+                        language=language,
+                        instruct=instruct,
+                    )
+                except Exception as exc:
+                    raise BackendUnavailable(f"Qwen3 VoiceDesign generation failed: {exc}") from exc
+            return pcm_wav_bytes(_apply_speed(wavs[0], speed), int(sample_rate))
+
+        return await asyncio.to_thread(run)
+
     async def _unload(self) -> None:
         self._model = None
         self._voice_prompt_cache.clear()
 
     @property
     def voices(self) -> list[str]:
-        cloned = _cloned_voices(self.voices_dir)
-        if _model_type(self.config) == "base":
-            return cloned
-        return sorted(DEFAULT_QWEN3_VOICES)
+        if _model_type(self.config) == "customvoice":
+            return sorted(DEFAULT_QWEN3_VOICES)
+        return []
 
     def _generate_cloned(
         self,
@@ -149,7 +287,7 @@ class Qwen3Backend(TTSBackend):
         reference = _reference_path(voice, self.voices_dir)
         if reference is None:
             raise BackendUnavailable(f"Qwen3 cloned voice '{voice}' has no reference audio.")
-        prompt = self._voice_prompt(model, voice, reference)
+        prompt = self._voice_prompt_for_reference(model, reference)
         wavs, sample_rate = model.generate_voice_clone(
             text=text,
             language=language,
@@ -158,9 +296,25 @@ class Qwen3Backend(TTSBackend):
         return _apply_speed(wavs[0], speed), int(sample_rate)
 
     def _voice_prompt(self, model: Any, voice: str, reference: Path) -> Any:
-        ref_text = _reference_text(reference)
-        x_vector_only = bool(self.config.get("x_vector_only_mode", not ref_text))
-        cache_key = f"{voice}:{reference.stat().st_mtime_ns}:{x_vector_only}:{ref_text or ''}"
+        return self._voice_prompt_for_reference(model, reference, cache_prefix=voice)
+
+    def _voice_prompt_for_reference(
+        self,
+        model: Any,
+        reference: Path,
+        *,
+        cache_prefix: str | None = None,
+        ref_text: str | None = None,
+        x_vector_only_mode: bool | None = None,
+    ) -> Any:
+        ref_text = ref_text if ref_text is not None else _reference_text(reference)
+        x_vector_only = (
+            bool(x_vector_only_mode)
+            if x_vector_only_mode is not None
+            else bool(self.config.get("x_vector_only_mode", not ref_text))
+        )
+        cache_name = cache_prefix or reference.parent.name
+        cache_key = f"{cache_name}:{reference.stat().st_mtime_ns}:{x_vector_only}:{ref_text or ''}"
         cached = self._voice_prompt_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -292,6 +446,8 @@ def _model_type(config: dict[str, Any]) -> str:
     if configured:
         return configured
     model = str(config.get("model", "")).lower()
+    if "voice_design" in model or "voicedesign" in model:
+        return "voice_design"
     return "base" if "base" in model and "customvoice" not in model else "customvoice"
 
 

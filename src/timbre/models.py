@@ -88,6 +88,21 @@ def model_profiles() -> list[ModelProfile]:
             downloadable=True,
         ),
         ModelProfile(
+            id="qwen3:1.7b-voicedesign",
+            backend="qwen3",
+            kind="tts",
+            label="Qwen3 TTS 1.7B VoiceDesign",
+            path=root / "qwen3" / "1.7b-voicedesign",
+            repo_id="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+            options={
+                "model": "1.7b-voicedesign",
+                "repo_id": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+                "model_type": "voice_design",
+                "model_path": str(root / "qwen3" / "1.7b-voicedesign"),
+            },
+            downloadable=True,
+        ),
+        ModelProfile(
             id="qwen3:1.7b-customvoice",
             backend="qwen3",
             kind="tts",

@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, Response
 
 from timbre.api.discovery import router as discovery_router
+from timbre.api.qwen import QWEN_VOICES_DIR, router as qwen_router
 from timbre.api.speech import router as speech_router
 from timbre.api.transcribe import router as transcribe_router
 from timbre.api.voices import router as voices_router
@@ -21,6 +22,7 @@ def create_app(config: TimbreConfig | None = None) -> FastAPI:
     cfg = config or load_config()
     manager = BackendManager(cfg)
     voice_store = VoiceStore(Path(cfg.voices.dir))
+    qwen_voice_store = VoiceStore(QWEN_VOICES_DIR)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -35,7 +37,9 @@ def create_app(config: TimbreConfig | None = None) -> FastAPI:
     app.state.config_path = CONFIG_PATH
     app.state.manager = manager
     app.state.voice_store = voice_store
+    app.state.qwen_voice_store = qwen_voice_store
     app.include_router(discovery_router)
+    app.include_router(qwen_router)
     app.include_router(speech_router)
     app.include_router(transcribe_router)
     app.include_router(voices_router)

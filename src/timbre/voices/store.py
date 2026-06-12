@@ -29,7 +29,7 @@ class VoiceStore:
         for path in sorted(self.root.iterdir()):
             if not path.is_dir():
                 continue
-            audio = next((item for item in path.iterdir() if item.name.startswith("reference.")), None)
+            audio = _reference_audio(path)
             caches = sorted(path.glob("*.safetensors"))
             records.append(VoiceRecord(path.name, path, audio, caches))
         return records
@@ -40,7 +40,7 @@ class VoiceStore:
         path = self.root / name
         if not path.is_dir():
             return None
-        audio = next((item for item in path.iterdir() if item.name.startswith("reference.")), None)
+        audio = _reference_audio(path)
         return VoiceRecord(path.name, path, audio, sorted(path.glob("*.safetensors")))
 
     async def save_upload(self, name: str, upload: UploadFile) -> VoiceRecord:
@@ -64,3 +64,14 @@ class VoiceStore:
             return False
         shutil.rmtree(path)
         return True
+
+
+def _reference_audio(path: Path) -> Path | None:
+    return next(
+        (
+            item
+            for item in path.iterdir()
+            if item.name.startswith("reference.") and item.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+        ),
+        None,
+    )

@@ -7,6 +7,7 @@ import {
   Radio,
   RefreshCw,
   Settings,
+  Sparkles,
   Square,
   Terminal,
   Trash2,
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Page = "speak" | "listen" | "backends" | "models" | "voices" | "log" | "config" | "api";
+type Page = "speak" | "listen" | "qwen" | "backends" | "models" | "voices" | "log" | "config" | "api";
 
 type Backend = {
   name: string;
@@ -33,6 +34,25 @@ type Voice = {
   target?: string;
   audio_path?: string | null;
   prepared_backends?: string[];
+};
+
+type QwenCloneVoice = {
+  name: string;
+  type: "clone";
+  audio_path?: string | null;
+  ref_text?: string | null;
+  design?: string | null;
+  prepared: boolean;
+};
+
+type QwenPresetVoice = {
+  name: string;
+  type: "preset";
+};
+
+type QwenVoices = {
+  clones: QwenCloneVoice[];
+  presets: QwenPresetVoice[];
 };
 
 type ModelRecord = {
@@ -197,8 +217,28 @@ const api = {
     }
     const body = await res.json();
     return body.data;
+  },
+  async qwenVoices(): Promise<QwenVoices> {
+    const res = await fetch("/v1/qwen/voices");
+    if (!res.ok) throw new Error("qwen voice list failed");
+    const body = await res.json();
+    return body.data;
   }
 };
+
+const QWEN_LANGUAGES = [
+  "Auto",
+  "English",
+  "Chinese",
+  "Japanese",
+  "Korean",
+  "German",
+  "French",
+  "Russian",
+  "Portuguese",
+  "Spanish",
+  "Italian"
+];
 
 function App() {
   const [page, setPage] = useState<Page>("speak");
@@ -259,6 +299,7 @@ function App() {
         <nav className="nav">
           <NavItem page="speak" active={page} onClick={setPage} label="Speak" icon={<Volume2 />} />
           <NavItem page="listen" active={page} onClick={setPage} label="Listen" icon={<Headphones />} />
+          <NavItem page="qwen" active={page} onClick={setPage} label="Qwen Studio" icon={<Sparkles />} />
           <NavItem page="backends" active={page} onClick={setPage} label="Backends" icon={<Radio />} />
           <NavItem page="models" active={page} onClick={setPage} label="Models" icon={<Cpu />} />
           <NavItem page="voices" active={page} onClick={setPage} label="Voices" icon={<Mic />} />
@@ -302,6 +343,14 @@ function App() {
             />
           )}
           {page === "listen" && <ListenPage backends={backends} onActivity={addActivity} />}
+          {page === "qwen" && (
+            <QwenStudioPage
+              backends={backends}
+              models={models}
+              onActivity={addActivity}
+              onRefresh={refresh}
+            />
+          )}
           {page === "backends" && <BackendsPage backends={backends} onRefresh={refresh} />}
           {page === "models" && <ModelsPage models={models} onRefresh={refresh} />}
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
@@ -650,6 +699,376 @@ function ListenPage({
       <button className="gen-bar" onClick={transcribe} disabled={!file}>
         <span className="gen-text">Transcribe_</span>
         <span className="gen-hint">ctrl+enter</span>
+      </button>
+    </div>
+  );
+}
+
+function QwenStudioPage({
+  backends,
+  models,
+  onActivity,
+  onRefresh
+}: {
+  backends: Backend[];
+  models: ModelRecord[];
+  onActivity: (entry: Omit<ActivityEntry, "id" | "time">) => void;
+  onRefresh: () => void;
+}) {
+  const [mode, setMode] = useState<"clone" | "custom" | "design">("clone");
+  const [voices, setVoices] = useState<QwenVoices>({ clones: [], presets: [] });
+  const [text, setText] = useState("This is Qwen Studio, rendering a high quality voice.");
+  const [language, setLanguage] = useState("Auto");
+  const [format, setFormat] = useState("wav");
+  const [speed, setSpeed] = useState(1);
+  const [cloneVoice, setCloneVoice] = useState("");
+  const [speaker, setSpeaker] = useState("Vivian");
+  const [instruct, setInstruct] = useState("Speak with calm confidence and natural pacing.");
+  const [designName, setDesignName] = useState("designed_voice");
+  const [uploadName, setUploadName] = useState("");
+  const [uploadRefText, setUploadRefText] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [prepareUpload, setPrepareUpload] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
+  const [duration, setDuration] = useState(0);
+  const [generationSeconds, setGenerationSeconds] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPlayer = useAudioPlayer(audioRef, audioUrl);
+  const waveformRef = useWaveform(audioUrl);
+  const qwenBackend = backends.find((item) => item.name === "qwen3" && item.kind === "tts");
+  const qwenModels = models.filter((item) => item.backend === "qwen3");
+  const activeQwen = qwenModels.find((item) => item.active);
+  const currentFamily = activeQwen?.id.includes("base")
+    ? "base"
+    : activeQwen?.id.includes("voicedesign")
+      ? "voice design"
+      : activeQwen?.id.includes("customvoice")
+        ? "custom voice"
+        : "none";
+
+  const loadVoices = useCallback(async () => {
+    try {
+      setVoices(await api.qwenVoices());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "qwen voices failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadVoices();
+  }, [loadVoices]);
+
+  useEffect(() => {
+    if (!cloneVoice && voices.clones.length) setCloneVoice(voices.clones[0].name);
+    if (!voices.clones.some((item) => item.name === cloneVoice) && voices.clones.length) {
+      setCloneVoice(voices.clones[0].name);
+    }
+  }, [cloneVoice, voices.clones]);
+
+  useEffect(() => {
+    if (!voices.presets.some((item) => item.name === speaker) && voices.presets.length) {
+      setSpeaker(voices.presets[0].name);
+    }
+  }, [speaker, voices.presets]);
+
+  async function uploadClone(event: FormEvent) {
+    event.preventDefault();
+    if (!uploadName.trim() || !uploadFile) return;
+    setBusy("upload");
+    setError("");
+    setMessage("");
+    const form = new FormData();
+    form.append("name", uploadName.trim());
+    form.append("file", uploadFile);
+    form.append("ref_text", uploadRefText);
+    form.append("prepare", prepareUpload ? "true" : "false");
+    try {
+      const res = await fetch("/v1/qwen/voices", { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await safeJson(res);
+        throw new Error(body.detail || `qwen voice upload failed: ${res.status}`);
+      }
+      setUploadName("");
+      setUploadFile(null);
+      setUploadRefText("");
+      setMessage("qwen voice saved");
+      await loadVoices();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "qwen voice upload failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function prepareClone(name: string) {
+    setBusy(`prepare:${name}`);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`/v1/qwen/voices/${encodeURIComponent(name)}/prepare`, { method: "POST" });
+      if (!res.ok) {
+        const body = await safeJson(res);
+        throw new Error(body.detail || `prepare failed: ${res.status}`);
+      }
+      setMessage(`${name} prepared`);
+      await loadVoices();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "prepare failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deleteClone(name: string) {
+    setBusy(`delete:${name}`);
+    setError("");
+    try {
+      const res = await fetch(`/v1/qwen/voices/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = await safeJson(res);
+        throw new Error(body.detail || `delete failed: ${res.status}`);
+      }
+      await loadVoices();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "delete failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function generate() {
+    const endpoint =
+      mode === "clone"
+        ? "/v1/qwen/clone/speech"
+        : mode === "custom"
+          ? "/v1/qwen/custom-voice/speech"
+          : "/v1/qwen/voice-design/speech";
+    const payload =
+      mode === "clone"
+        ? { input: text, voice: cloneVoice, response_format: format, speed, language }
+        : mode === "custom"
+          ? { input: text, speaker, instruct, response_format: format, speed, language }
+          : { input: text, instruct, response_format: format, speed, language };
+    await generateAudio(endpoint, payload, mode);
+  }
+
+  async function saveDesignAsClone() {
+    if (!designName.trim()) return;
+    setBusy("save-design");
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/v1/qwen/voice-design/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: designName.trim(),
+          input: text,
+          instruct,
+          speed,
+          language
+        })
+      });
+      if (!res.ok) {
+        const body = await safeJson(res);
+        throw new Error(body.detail || `save failed: ${res.status}`);
+      }
+      const body = await res.json();
+      const audioRes = await fetch(`/v1/qwen/voices/${encodeURIComponent(body.name)}/reference`);
+      if (audioRes.ok) {
+        setOutputBlob(await audioRes.blob());
+      }
+      setMessage(`${body.name} saved as Qwen clone reference`);
+      await loadVoices();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "save failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function generateAudio(endpoint: string, payload: object, label: string) {
+    setBusy("generate");
+    setError("");
+    setMessage("");
+    const start = performance.now();
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const body = await safeJson(res);
+        throw new Error(body.detail || `qwen generation failed: ${res.status}`);
+      }
+      await setOutputBlob(await res.blob());
+      const elapsed = (performance.now() - start) / 1000;
+      setGenerationSeconds(elapsed);
+      onActivity({
+        type: "TTS",
+        backend: `qwen:${label}`,
+        input: text,
+        duration: elapsed,
+        format,
+        status: "ok"
+      });
+      onRefresh();
+    } catch (err) {
+      onActivity({
+        type: "TTS",
+        backend: `qwen:${label}`,
+        input: text,
+        duration: (performance.now() - start) / 1000,
+        format,
+        status: "error"
+      });
+      setError(err instanceof Error ? err.message : "qwen generation failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function setOutputBlob(blob: Blob) {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioUrl(URL.createObjectURL(blob));
+  }
+
+  const canGenerate = Boolean(text.trim()) && (mode !== "clone" || Boolean(cloneVoice));
+  const rtf = duration > 0 && generationSeconds > 0 ? generationSeconds / duration : 0;
+
+  return (
+    <div className="page-grid">
+      <div className="stats-row qwen-stats">
+        <Metric label="backend" value={qwenBackend?.enabled ? "enabled" : "disabled"} />
+        <Metric label="loaded" value={qwenBackend?.loaded ? "yes" : "cold"} />
+        <Metric label="active" value={currentFamily} />
+        <Metric label="models" value={String(qwenModels.filter((item) => item.installed).length)} />
+      </div>
+
+      <SectionHeader num="01" title="mode" right={activeQwen?.id || "no qwen model active"} />
+      <div className="mode-tabs">
+        <button className={mode === "clone" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("clone")}>Clone</button>
+        <button className={mode === "custom" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("custom")}>CustomVoice</button>
+        <button className={mode === "design" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("design")}>VoiceDesign</button>
+      </div>
+
+      <SectionHeader num="02" title="input" right={`${text.length}/4096`} />
+      <textarea
+        className="input-area text-input"
+        maxLength={4096}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+
+      <SectionHeader num="03" title="qwen controls" />
+      {mode === "clone" && (
+        <div className="qwen-panel">
+          <div className="params qwen-params">
+            <SelectParam label="clone voice" value={cloneVoice} values={voices.clones.map((item) => item.name)} onChange={setCloneVoice} accent />
+            <SelectParam label="language" value={language} values={QWEN_LANGUAGES} onChange={setLanguage} />
+            <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
+            <SpeedParam speed={speed} onChange={setSpeed} />
+          </div>
+          <form className="clone-form qwen-upload" onSubmit={uploadClone}>
+            <input value={uploadName} onChange={(event) => setUploadName(event.target.value)} placeholder="qwen voice name" />
+            <input value={uploadRefText} onChange={(event) => setUploadRefText(event.target.value)} placeholder="reference transcript" />
+            <label className="outline-btn">
+              <Upload size={15} />
+              {uploadFile ? uploadFile.name : "Reference"}
+              <input hidden type="file" accept="audio/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
+            </label>
+            <label className="toggle-row clone-toggle">
+              <input type="checkbox" checked={prepareUpload} onChange={(event) => setPrepareUpload(event.target.checked)} />
+              <span>Prepare</span>
+            </label>
+            <button className="primary-btn" disabled={busy !== "" || !uploadName.trim() || !uploadFile}>
+              {busy === "upload" ? "Saving" : "Save clone"}
+            </button>
+          </form>
+          <div className="voice-grid">
+            {voices.clones.map((item) => (
+              <div className="voice-card" key={item.name}>
+                <div className="voice-name">{item.name}</div>
+                <div className="voice-meta">{item.prepared ? "prepared" : "reference only"}</div>
+                <div className="voice-actions">
+                  <button className="small-btn" disabled={busy !== "" || item.prepared} onClick={() => prepareClone(item.name)}>
+                    {busy === `prepare:${item.name}` ? "..." : "Prepare"}
+                  </button>
+                  <button className="small-btn danger" disabled={busy !== ""} onClick={() => deleteClone(item.name)}>
+                    <Trash2 size={13} />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {mode === "custom" && (
+        <div className="qwen-panel">
+          <div className="params qwen-params">
+            <SelectParam label="speaker" value={speaker} values={voices.presets.map((item) => item.name)} onChange={setSpeaker} accent />
+            <SelectParam label="language" value={language} values={QWEN_LANGUAGES} onChange={setLanguage} />
+            <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
+            <SpeedParam speed={speed} onChange={setSpeed} />
+          </div>
+          <textarea className="input-area text-input qwen-instruct" value={instruct} onChange={(event) => setInstruct(event.target.value)} />
+        </div>
+      )}
+
+      {mode === "design" && (
+        <div className="qwen-panel">
+          <div className="params qwen-params">
+            <label className="param">
+              <span className="param-label">save name</span>
+              <input className="qwen-inline-input" value={designName} onChange={(event) => setDesignName(event.target.value)} />
+              <span className="param-underline" />
+            </label>
+            <SelectParam label="language" value={language} values={QWEN_LANGUAGES} onChange={setLanguage} />
+            <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
+            <SpeedParam speed={speed} onChange={setSpeed} />
+          </div>
+          <textarea className="input-area text-input qwen-instruct" value={instruct} onChange={(event) => setInstruct(event.target.value)} />
+          <button className="outline-btn" disabled={busy !== "" || !designName.trim() || !text.trim() || !instruct.trim()} onClick={saveDesignAsClone}>
+            {busy === "save-design" ? "Saving" : "Save as clone"}
+          </button>
+        </div>
+      )}
+
+      <SectionHeader num="04" title="output" right={duration ? `${duration.toFixed(1)}s` : "0.0s"} />
+      <div className="wave-area">
+        <div className="wave-player">
+          <button className="play-btn" onClick={audioPlayer.toggle} disabled={!audioUrl} title={audioPlayer.playing ? "Stop" : "Play"}>
+            {audioPlayer.playing ? <Square size={15} /> : <Play size={15} />}
+          </button>
+          <div className="track" />
+          <div className="wave-time">{formatTime(audioPlayer.currentTime)} / {formatTime(duration)}</div>
+        </div>
+        <canvas className="wave-canvas" ref={waveformRef} />
+        <audio ref={audioRef} src={audioUrl} onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)} />
+      </div>
+
+      <div className="metrics-row">
+        <Metric label="generation" value={generationSeconds ? `${generationSeconds.toFixed(2)}s` : "-"} />
+        <Metric label="audio" value={duration ? `${duration.toFixed(2)}s` : "-"} />
+        <Metric label="rtf" value={rtf ? `${rtf.toFixed(2)}x` : "-"} />
+        <Metric label="mode" value={mode} />
+      </div>
+
+      {error && <div className="error-line">{error}</div>}
+      {message && <div className="ok-line">{message}</div>}
+      <button className="gen-bar" onClick={generate} disabled={busy !== "" || !canGenerate}>
+        <span className="gen-text">{busy === "generate" ? "Generating_" : "Generate_"}</span>
+        <span className="gen-hint">qwen studio</span>
       </button>
     </div>
   );
@@ -1824,6 +2243,18 @@ function SelectParam({
   );
 }
 
+function SpeedParam({ speed, onChange }: { speed: number; onChange: (value: number) => void }) {
+  return (
+    <div className="param">
+      <div className="param-label">speed</div>
+      <div className="slider-row">
+        <input className="range" type="range" min="0.5" max="1.5" step="0.05" value={speed} onChange={(event) => onChange(Number(event.target.value))} />
+        <div className="slider-val">{speed.toFixed(2)}</div>
+      </div>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
@@ -2011,12 +2442,13 @@ function pageLabel(page: Page) {
   const labels: Record<Page, string> = {
     speak: "01 — speak",
     listen: "02 — listen",
-    backends: "03 — backends",
-    models: "04 — models",
-    voices: "05 — voices",
-    log: "06 — log",
-    config: "07 — config",
-    api: "08 — api"
+    qwen: "03 — qwen studio",
+    backends: "04 — backends",
+    models: "05 — models",
+    voices: "06 — voices",
+    log: "07 — log",
+    config: "08 — config",
+    api: "09 — api"
   };
   return labels[page];
 }

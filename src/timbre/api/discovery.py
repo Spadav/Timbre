@@ -13,6 +13,7 @@ from timbre.errors import UnknownBackend
 from timbre.manager import BackendManager
 from timbre.models import download_model, model_records, set_active_model
 from timbre.voices.store import VoiceStore
+from timbre.api.qwen import QWEN_VOICES_DIR
 
 router = APIRouter()
 
@@ -200,6 +201,7 @@ async def _replace_config(request: Request, config: TimbreConfig) -> None:
     request.app.state.config = config
     request.app.state.manager = manager
     request.app.state.voice_store = VoiceStore(Path(config.voices.dir))
+    request.app.state.qwen_voice_store = VoiceStore(QWEN_VOICES_DIR)
     manager.start_sweeper()
 
 
