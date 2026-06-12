@@ -120,6 +120,86 @@ curl http://127.0.0.1:9000/v1/audio/speech \
 
 `alloy` resolves to Supertonic's `F1`. Default aliases: alloy/F1, echo/M1, fable/M2, nova/F2, onyx/M3, shimmer/F3. Custom aliases can be created through the API or UI.
 
+### Qwen Studio
+
+Qwen has its own Studio tab and API because it has more than one workflow:
+
+- **Clone:** use your own reference audio with Qwen Base.
+- **Preset Voice:** use Qwen preset speakers with style/emotion instructions.
+- **Voice Design:** describe a new voice in text, generate it, then save the exact generated audio as a clone.
+
+Clone and Preset Voice can use `0.6b` or `1.7b` through `model_size`. Voice Design uses `1.7b`.
+Timbre switches the active Qwen model automatically for these Studio endpoints, so you do not have to set the model manually before each request.
+
+Upload a Qwen clone reference:
+
+```bash
+curl http://127.0.0.1:9000/v1/qwen/voices \
+  -F name=my_qwen_voice \
+  -F file=@reference.wav \
+  -F ref_text='Text spoken in the reference audio.' \
+  -F model_size=1.7b \
+  -F prepare=false
+```
+
+Generate with that clone:
+
+```bash
+curl http://127.0.0.1:9000/v1/qwen/clone/speech \
+  -H "content-type: application/json" \
+  -d '{
+    "input": "Speaking with a Qwen reference voice.",
+    "voice": "my_qwen_voice",
+    "model_size": "1.7b",
+    "response_format": "wav",
+    "language": "Auto"
+  }' \
+  --output qwen-clone.wav
+```
+
+Use a Qwen preset voice with instructions:
+
+```bash
+curl http://127.0.0.1:9000/v1/qwen/custom-voice/speech \
+  -H "content-type: application/json" \
+  -d '{
+    "input": "This uses a Qwen preset speaker.",
+    "speaker": "Vivian",
+    "model_size": "1.7b",
+    "instruct": "Speak warmly with calm confidence.",
+    "response_format": "wav",
+    "language": "Auto"
+  }' \
+  --output qwen-preset.wav
+```
+
+Design a voice:
+
+```bash
+curl http://127.0.0.1:9000/v1/qwen/voice-design/speech \
+  -H "content-type: application/json" \
+  -d '{
+    "input": "This is a newly designed narrator voice.",
+    "instruct": "A warm mature narrator, slow pacing, intimate microphone.",
+    "model_size": "1.7b",
+    "response_format": "wav",
+    "language": "Auto"
+  }' \
+  --output qwen-design.wav
+```
+
+To save a Voice Design result as a reusable clone, upload the generated WAV:
+
+```bash
+curl http://127.0.0.1:9000/v1/qwen/voices \
+  -F name=my_designed_voice \
+  -F file=@qwen-design.wav \
+  -F ref_text='This is a newly designed narrator voice.' \
+  -F design='A warm mature narrator, slow pacing, intimate microphone.' \
+  -F model_size=1.7b \
+  -F prepare=false
+```
+
 ## Features
 
 **Lazy loading with TTL.** Models load on first request and unload after a configurable idle timeout. The server is always reachable; only model weights cycle in and out of memory.
@@ -150,14 +230,22 @@ curl -X PUT http://127.0.0.1:9000/v1/config \
 
 ## Qwen3 (Optional, CUDA)
 
-Qwen3 is disabled by default. It requires a CUDA GPU and pulls heavy dependencies.
+Qwen3 is disabled by default. It requires a CUDA GPU and pulls heavy dependencies. Use the CUDA Docker compose file for the simplest setup.
 
 ```bash
 pip install timbre-voice[qwen3]
-timbre download-models --model qwen3:0.6b-customvoice --set-default
+timbre download-models --model qwen3:1.7b-customvoice --set-default
 ```
 
-Enable it through the UI or API, then:
+Available Qwen model profiles:
+
+- `qwen3:0.6b-base`
+- `qwen3:0.6b-customvoice`
+- `qwen3:1.7b-base`
+- `qwen3:1.7b-customvoice`
+- `qwen3:1.7b-voicedesign`
+
+You can still use Qwen through the generic OpenAI-compatible speech route when the active Qwen model supports the selected voice:
 
 ```bash
 curl http://127.0.0.1:9000/v1/audio/speech \
@@ -166,7 +254,7 @@ curl http://127.0.0.1:9000/v1/audio/speech \
   --output qwen.wav
 ```
 
-For multi-GPU systems, set the device to `cuda:auto` (picks the GPU with most free VRAM), or pin a specific GPU with `cuda:0`, `cuda:1`, etc.
+For multi-GPU systems, set the device to `cuda:auto` (picks the GPU with most free VRAM), or pin a specific GPU with `cuda:0`, `cuda:1`, etc. In Docker, you can also limit the visible GPU with `TIMBRE_NVIDIA_VISIBLE_DEVICES` in `.env` before starting `docker-compose.cuda.yml`.
 
 For best throughput, install Flash Attention:
 
