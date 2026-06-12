@@ -86,12 +86,14 @@ async def create_qwen_voice(
     name: str = Form(...),
     file: UploadFile = File(...),
     ref_text: str = Form(default=""),
+    design: str = Form(default=""),
     prepare: bool = Form(default=False),
     model_size: Literal["0.6b", "1.7b"] = Form(default="1.7b"),
 ) -> dict[str, object]:
     try:
         record = await _qwen_store(request).save_upload(name, file)
         _write_text(record.path / "reference.txt", ref_text)
+        _write_text(record.path / "design.txt", design)
         prepared = await _prepare_record(request, record.name, model_size=model_size) if prepare else None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

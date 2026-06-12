@@ -57,6 +57,14 @@ type QwenVoices = {
 
 type QwenModelSize = "0.6b" | "1.7b";
 
+type QwenOutput = {
+  blob: Blob;
+  mode: "clone" | "custom" | "design";
+  text: string;
+  instruct: string;
+  language: string;
+};
+
 type ModelRecord = {
   id: string;
   object: "model";
@@ -738,6 +746,7 @@ function QwenStudioPage({
   const [audioUrl, setAudioUrl] = useState("");
   const [duration, setDuration] = useState(0);
   const [generationSeconds, setGenerationSeconds] = useState(0);
+  const [lastOutput, setLastOutput] = useState<QwenOutput | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioPlayer = useAudioPlayer(audioRef, audioUrl);
   const waveformRef = useWaveform(audioUrl);
@@ -870,32 +879,28 @@ function QwenStudioPage({
 
   async function saveDesignAsClone() {
     if (!designName.trim()) return;
+    if (!lastOutput || lastOutput.mode !== "design") {
+      setError("Generate a Voice Design sample before saving it as a clone.");
+      return;
+    }
     setBusy("save-design");
     setError("");
     setMessage("");
     try {
-      const res = await fetch("/v1/qwen/voice-design/save", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: designName.trim(),
-          input: text,
-          instruct,
-          model_size: "1.7b",
-          speed,
-          language
-        })
-      });
+      const form = new FormData();
+      form.append("name", designName.trim());
+      form.append("file", lastOutput.blob, "reference.wav");
+      form.append("ref_text", lastOutput.text);
+      form.append("design", lastOutput.instruct);
+      form.append("prepare", "false");
+      form.append("model_size", "1.7b");
+      const res = await fetch("/v1/qwen/voices", { method: "POST", body: form });
       if (!res.ok) {
         const body = await safeJson(res);
         throw new Error(body.detail || `save failed: ${res.status}`);
       }
       const body = await res.json();
-      const audioRes = await fetch(`/v1/qwen/voices/${encodeURIComponent(body.name)}/reference`);
-      if (audioRes.ok) {
-        setOutputBlob(await audioRes.blob());
-      }
-      setMessage(`${body.name} saved as Qwen clone reference`);
+      setMessage(`${body.name} saved from current Voice Design audio`);
       await loadVoices();
       onRefresh();
     } catch (err) {
@@ -905,7 +910,7 @@ function QwenStudioPage({
     }
   }
 
-  async function generateAudio(endpoint: string, payload: object, label: string) {
+  async function generateAudio(endpoint: string, payload: object, label: "clone" | "custom" | "design") {
     setBusy("generate");
     setError("");
     setMessage("");
@@ -920,7 +925,7 @@ function QwenStudioPage({
         const body = await safeJson(res);
         throw new Error(body.detail || `qwen generation failed: ${res.status}`);
       }
-      await setOutputBlob(await res.blob());
+      await setOutputBlob(await res.blob(), label);
       const elapsed = (performance.now() - start) / 1000;
       setGenerationSeconds(elapsed);
       onActivity({
@@ -947,9 +952,10 @@ function QwenStudioPage({
     }
   }
 
-  async function setOutputBlob(blob: Blob) {
+  async function setOutputBlob(blob: Blob, outputMode: "clone" | "custom" | "design") {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(URL.createObjectURL(blob));
+    setLastOutput({ blob, mode: outputMode, text, instruct, language });
   }
 
   const modeHelp = {
@@ -1034,8 +1040,8 @@ function QwenStudioPage({
                 <div className="voice-name">{item.name}</div>
                 <div className="voice-meta">{item.prepared ? "prepared" : "reference only"}</div>
                 <div className="voice-actions">
-                  <button className="small-btn" disabled={busy !== "" || item.prepared} onClick={() => prepareClone(item.name)}>
-                    {busy === `prepare:${item.name}` ? "..." : "Preload"}
+                  <button className="small-btn" disabled={busy !== ""} onClick={() => prepareClone(item.name)}>
+                    {busy === `prepare:${item.name}` ? "..." : item.prepared ? "Preloaded" : "Preload"}
                   </button>
                   <button className="small-btn danger" disabled={busy !== ""} onClick={() => deleteClone(item.name)}>
                     <Trash2 size={13} />
@@ -1075,7 +1081,7 @@ function QwenStudioPage({
             <SpeedParam speed={speed} onChange={setSpeed} />
           </div>
           <textarea className="input-area text-input qwen-instruct" value={instruct} onChange={(event) => setInstruct(event.target.value)} />
-          <button className="outline-btn" disabled={busy !== "" || !designName.trim() || !text.trim() || !instruct.trim()} onClick={saveDesignAsClone}>
+          <button className="outline-btn" disabled={busy !== "" || !designName.trim() || !lastOutput || lastOutput.mode !== "design"} onClick={saveDesignAsClone}>
             {busy === "save-design" ? "Saving" : "Save as clone"}
           </button>
         </div>
