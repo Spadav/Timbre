@@ -4,6 +4,7 @@ services:
   timbre:
     build: .
     image: spadav/timbre:latest
+    restart: unless-stopped
     ports:
       - "9000:9000"
     environment:

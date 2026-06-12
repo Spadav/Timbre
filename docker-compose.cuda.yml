@@ -6,6 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.cuda
     image: spadav/timbre:cuda
+    restart: unless-stopped
     ports:
       - "9000:9000"
     environment:
