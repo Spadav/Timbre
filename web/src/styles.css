@@ -711,8 +711,39 @@ button {
   min-height: 92px;
 }
 
-.qwen-upload input {
+.qwen-upload {
+  display: grid;
+  align-items: stretch;
+}
+
+.qwen-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.qwen-upload-row input {
   max-width: 240px;
+}
+
+.qwen-reference-text {
+  width: 100%;
+  min-height: 96px;
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--bg-p);
+  color: var(--txt-p);
+  padding: 10px;
+  outline: none;
+  resize: vertical;
+  font-family: var(--fm);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.qwen-reference-text:focus {
+  border-color: var(--acc);
 }
 
 .outline-btn,

@@ -991,20 +991,27 @@ function QwenStudioPage({
             <SpeedParam speed={speed} onChange={setSpeed} />
           </div>
           <form className="clone-form qwen-upload" onSubmit={uploadClone}>
-            <input value={uploadName} onChange={(event) => setUploadName(event.target.value)} placeholder="qwen voice name" />
-            <input value={uploadRefText} onChange={(event) => setUploadRefText(event.target.value)} placeholder="reference transcript" />
-            <label className="outline-btn">
-              <Upload size={15} />
-              {uploadFile ? uploadFile.name : "Reference"}
-              <input hidden type="file" accept="audio/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
-            </label>
-            <label className="toggle-row clone-toggle">
-              <input type="checkbox" checked={prepareUpload} onChange={(event) => setPrepareUpload(event.target.checked)} />
-              <span>Prepare</span>
-            </label>
-            <button className="primary-btn" disabled={busy !== "" || !uploadName.trim() || !uploadFile}>
-              {busy === "upload" ? "Saving" : "Save clone"}
-            </button>
+            <div className="qwen-upload-row">
+              <input value={uploadName} onChange={(event) => setUploadName(event.target.value)} placeholder="qwen voice name" />
+              <label className="outline-btn">
+                <Upload size={15} />
+                {uploadFile ? uploadFile.name : "Reference audio"}
+                <input hidden type="file" accept="audio/*" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
+              </label>
+              <label className="toggle-row clone-toggle">
+                <input type="checkbox" checked={prepareUpload} onChange={(event) => setPrepareUpload(event.target.checked)} />
+                <span>Preload</span>
+              </label>
+              <button className="primary-btn" disabled={busy !== "" || !uploadName.trim() || !uploadFile}>
+                {busy === "upload" ? "Saving" : "Save clone"}
+              </button>
+            </div>
+            <textarea
+              className="qwen-reference-text"
+              value={uploadRefText}
+              onChange={(event) => setUploadRefText(event.target.value)}
+              placeholder="reference transcript"
+            />
           </form>
           <div className="voice-grid">
             {voices.clones.map((item) => (
@@ -1013,7 +1020,7 @@ function QwenStudioPage({
                 <div className="voice-meta">{item.prepared ? "prepared" : "reference only"}</div>
                 <div className="voice-actions">
                   <button className="small-btn" disabled={busy !== "" || item.prepared} onClick={() => prepareClone(item.name)}>
-                    {busy === `prepare:${item.name}` ? "..." : "Prepare"}
+                    {busy === `prepare:${item.name}` ? "..." : "Preload"}
                   </button>
                   <button className="small-btn danger" disabled={busy !== ""} onClick={() => deleteClone(item.name)}>
                     <Trash2 size={13} />
