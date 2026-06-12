@@ -952,6 +952,11 @@ function QwenStudioPage({
     setAudioUrl(URL.createObjectURL(blob));
   }
 
+  const modeHelp = {
+    clone: "Use your own reference audio to imitate a saved voice.",
+    custom: "Use Qwen preset voices with optional style and emotion instructions.",
+    design: "Describe a new voice in text, generate it, then save it as a clone."
+  }[mode];
   const canGenerate = Boolean(text.trim()) && (mode !== "clone" || Boolean(cloneVoice));
   const rtf = duration > 0 && generationSeconds > 0 ? generationSeconds / duration : 0;
 
@@ -967,10 +972,20 @@ function QwenStudioPage({
 
       <SectionHeader num="01" title="mode" right={activeQwen?.id || "no qwen model active"} />
       <div className="mode-tabs">
-        <button className={mode === "clone" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("clone")}>Clone</button>
-        <button className={mode === "custom" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("custom")}>CustomVoice</button>
-        <button className={mode === "design" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("design")}>VoiceDesign</button>
+        <button className={mode === "clone" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("clone")}>
+          <span className="mode-title">Clone</span>
+          <span className="mode-desc">reference audio</span>
+        </button>
+        <button className={mode === "custom" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("custom")}>
+          <span className="mode-title">Preset Voice</span>
+          <span className="mode-desc">voice + instructions</span>
+        </button>
+        <button className={mode === "design" ? "mode-tab active" : "mode-tab"} onClick={() => setMode("design")}>
+          <span className="mode-title">Voice Design</span>
+          <span className="mode-desc">describe a new voice</span>
+        </button>
       </div>
+      <div className="mode-help">{modeHelp}</div>
 
       <SectionHeader num="02" title="input" right={`${text.length}/4096`} />
       <textarea

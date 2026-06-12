@@ -685,21 +685,51 @@ button {
 }
 
 .mode-tab {
-  min-height: 42px;
+  min-height: 58px;
   border: 0;
   background: var(--bg-s);
   color: var(--txt-s);
   cursor: pointer;
   font-family: var(--fm);
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 10px 12px;
+}
+
+.mode-title {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.mode-desc {
+  color: var(--txt-s);
+  font-size: 11px;
+  line-height: 1.25;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .mode-tab:hover,
 .mode-tab.active {
   color: var(--acc);
   background: var(--acc-dim);
+}
+
+.mode-tab:hover .mode-desc,
+.mode-tab.active .mode-desc {
+  color: var(--txt-p);
+}
+
+.mode-help {
+  border: 1px solid var(--bdr);
+  border-radius: 4px;
+  background: var(--bg-s);
+  color: var(--txt-s);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .qwen-panel {
