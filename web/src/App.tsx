@@ -1895,7 +1895,9 @@ function ApiInfo({ label, value }: { label: string; value: string }) {
 function ApiCode({ title, code }: { title: string; code: string }) {
   const [copied, setCopied] = useState(false);
 
-  async function copy() {
+  async function copy(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
     if (navigator.clipboard) {
       await navigator.clipboard.writeText(code).catch(() => undefined);
     }
@@ -1904,15 +1906,15 @@ function ApiCode({ title, code }: { title: string; code: string }) {
   }
 
   return (
-    <div className="api-card">
-      <div className="api-card-head">
+    <details className="api-card">
+      <summary className="api-card-head">
         <div>{title}</div>
         <button className="small-btn" onClick={copy}>
           {copied ? "Copied" : "Copy"}
         </button>
-      </div>
+      </summary>
       <pre>{code}</pre>
-    </div>
+    </details>
   );
 }
 

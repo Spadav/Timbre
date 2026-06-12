@@ -1177,6 +1177,22 @@ button {
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--bdr);
+  cursor: pointer;
+  list-style: none;
+}
+
+.api-card-head::-webkit-details-marker {
+  display: none;
+}
+
+.api-card-head::before {
+  content: "+";
+  color: var(--acc);
+  margin-right: 2px;
+}
+
+.api-card[open] .api-card-head::before {
+  content: "-";
 }
 
 .api-card pre {
