@@ -1816,7 +1816,84 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
       />
       <ApiNote text="For TTS, model is the backend name. Use pocket, supertonic, or qwen3 when enabled. response_format accepts wav, mp3, opus, ogg, or flac. language and steps are backend-specific fields used by some backends." />
 
-      <SectionHeader num="04" title="speech to text" />
+      <SectionHeader num="04" title="qwen studio" />
+      <ApiCode
+        title="List Qwen voices"
+        code={`curl ${baseUrl}/v1/qwen/voices`}
+      />
+      <ApiCode
+        title="Upload or preload a Qwen clone"
+        code={`curl ${baseUrl}/v1/qwen/voices \\
+  -F name=my_qwen_voice \\
+  -F file=@reference.wav \\
+  -F ref_text='Text spoken in the reference audio.' \\
+  -F design='Optional voice design notes.' \\
+  -F model_size=1.7b \\
+  -F prepare=false
+
+curl -X POST '${baseUrl}/v1/qwen/voices/my_qwen_voice/prepare?model_size=1.7b'`}
+      />
+      <ApiCode
+        title="Qwen clone speech"
+        code={`curl ${baseUrl}/v1/qwen/clone/speech \\
+  -H "content-type: application/json" \\
+  -d '{
+    "input": "This uses a saved Qwen reference voice.",
+    "voice": "my_qwen_voice",
+    "model_size": "1.7b",
+    "response_format": "wav",
+    "speed": 1.0,
+    "language": "Auto"
+  }' \\
+  --output qwen-clone.wav`}
+      />
+      <ApiCode
+        title="Qwen preset voice with instructions"
+        code={`curl ${baseUrl}/v1/qwen/custom-voice/speech \\
+  -H "content-type: application/json" \\
+  -d '{
+    "input": "This uses a Qwen preset speaker with direction.",
+    "speaker": "Vivian",
+    "model_size": "1.7b",
+    "instruct": "Speak warmly with calm confidence.",
+    "response_format": "wav",
+    "speed": 1.0,
+    "language": "Auto"
+  }' \\
+  --output qwen-preset.wav`}
+      />
+      <ApiCode
+        title="Qwen voice design"
+        code={`curl ${baseUrl}/v1/qwen/voice-design/speech \\
+  -H "content-type: application/json" \\
+  -d '{
+    "input": "This is a newly designed narrator voice.",
+    "instruct": "A warm mature narrator, slow pacing, intimate microphone.",
+    "model_size": "1.7b",
+    "response_format": "wav",
+    "speed": 1.0,
+    "language": "Auto"
+  }' \\
+  --output qwen-design.wav`}
+      />
+      <ApiCode
+        title="Save generated Qwen design as clone"
+        code={`curl ${baseUrl}/v1/qwen/voices \\
+  -F name=my_designed_voice \\
+  -F file=@qwen-design.wav \\
+  -F ref_text='This is a newly designed narrator voice.' \\
+  -F design='A warm mature narrator, slow pacing, intimate microphone.' \\
+  -F model_size=1.7b \\
+  -F prepare=false`}
+      />
+      <ApiCode
+        title="Preview or delete a Qwen clone"
+        code={`curl ${baseUrl}/v1/qwen/voices/my_qwen_voice/reference --output qwen-reference.wav
+curl -X DELETE ${baseUrl}/v1/qwen/voices/my_qwen_voice`}
+      />
+      <ApiNote text="Qwen Studio endpoints are separate from the OpenAI-compatible TTS route. Clone and preset voice support model_size 0.6b or 1.7b. Voice Design uses 1.7b. Saving a design as a clone means uploading the exact generated WAV to /v1/qwen/voices." />
+
+      <SectionHeader num="05" title="speech to text" />
       <ApiCode
         title="Transcribe audio"
         code={`curl ${baseUrl}/v1/audio/transcriptions \\
@@ -1825,7 +1902,7 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
       />
       <ApiNote text="For STT, model is the backend name. Use parakeet or whisper when enabled. Optional form fields include language and prompt." />
 
-      <SectionHeader num="05" title="backend control" />
+      <SectionHeader num="06" title="backend control" />
       <ApiCode
         title="Load or unload a backend"
         code={`curl ${baseUrl}/v1/backends/tts/${sampleTts} \\
@@ -1848,7 +1925,7 @@ curl ${baseUrl}/v1/backends/stt/${sampleStt} \\
       />
       <ApiNote text="Use /tts/name for text-to-speech backends and /stt/name for speech-to-text backends. load/unload changes runtime memory; enable/disable updates config and rebuilds the manager." />
 
-      <SectionHeader num="06" title="voices and config" />
+      <SectionHeader num="07" title="voices and config" />
       <ApiCode
         title="Upload a cloned voice"
         code={`curl ${baseUrl}/v1/voices \\
