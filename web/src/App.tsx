@@ -55,6 +55,8 @@ type QwenVoices = {
   presets: QwenPresetVoice[];
 };
 
+type QwenModelSize = "0.6b" | "1.7b";
+
 type ModelRecord = {
   id: string;
   object: "model";
@@ -721,6 +723,7 @@ function QwenStudioPage({
   const [language, setLanguage] = useState("Auto");
   const [format, setFormat] = useState("wav");
   const [speed, setSpeed] = useState(1);
+  const [modelSize, setModelSize] = useState<QwenModelSize>("1.7b");
   const [cloneVoice, setCloneVoice] = useState("");
   const [speaker, setSpeaker] = useState("Vivian");
   const [instruct, setInstruct] = useState("Speak with calm confidence and natural pacing.");
@@ -774,6 +777,12 @@ function QwenStudioPage({
     }
   }, [speaker, voices.presets]);
 
+  useEffect(() => {
+    if (mode === "design" && modelSize !== "1.7b") {
+      setModelSize("1.7b");
+    }
+  }, [mode, modelSize]);
+
   async function uploadClone(event: FormEvent) {
     event.preventDefault();
     if (!uploadName.trim() || !uploadFile) return;
@@ -785,6 +794,7 @@ function QwenStudioPage({
     form.append("file", uploadFile);
     form.append("ref_text", uploadRefText);
     form.append("prepare", prepareUpload ? "true" : "false");
+    form.append("model_size", modelSize);
     try {
       const res = await fetch("/v1/qwen/voices", { method: "POST", body: form });
       if (!res.ok) {
@@ -809,7 +819,7 @@ function QwenStudioPage({
     setError("");
     setMessage("");
     try {
-      const res = await fetch(`/v1/qwen/voices/${encodeURIComponent(name)}/prepare`, { method: "POST" });
+      const res = await fetch(`/v1/qwen/voices/${encodeURIComponent(name)}/prepare?model_size=${encodeURIComponent(modelSize)}`, { method: "POST" });
       if (!res.ok) {
         const body = await safeJson(res);
         throw new Error(body.detail || `prepare failed: ${res.status}`);
@@ -851,10 +861,10 @@ function QwenStudioPage({
           : "/v1/qwen/voice-design/speech";
     const payload =
       mode === "clone"
-        ? { input: text, voice: cloneVoice, response_format: format, speed, language }
+        ? { input: text, voice: cloneVoice, model_size: modelSize, response_format: format, speed, language }
         : mode === "custom"
-          ? { input: text, speaker, instruct, response_format: format, speed, language }
-          : { input: text, instruct, response_format: format, speed, language };
+          ? { input: text, speaker, model_size: modelSize, instruct, response_format: format, speed, language }
+          : { input: text, instruct, model_size: "1.7b", response_format: format, speed, language };
     await generateAudio(endpoint, payload, mode);
   }
 
@@ -871,6 +881,7 @@ function QwenStudioPage({
           name: designName.trim(),
           input: text,
           instruct,
+          model_size: "1.7b",
           speed,
           language
         })
@@ -950,6 +961,7 @@ function QwenStudioPage({
         <Metric label="backend" value={qwenBackend?.enabled ? "enabled" : "disabled"} />
         <Metric label="loaded" value={qwenBackend?.loaded ? "yes" : "cold"} />
         <Metric label="active" value={currentFamily} />
+        <Metric label="selected" value={mode === "design" ? "1.7b" : modelSize} />
         <Metric label="models" value={String(qwenModels.filter((item) => item.installed).length)} />
       </div>
 
@@ -972,6 +984,7 @@ function QwenStudioPage({
       {mode === "clone" && (
         <div className="qwen-panel">
           <div className="params qwen-params">
+            <SelectParam label="model" value={modelSize} values={["0.6b", "1.7b"]} onChange={(value) => setModelSize(value as QwenModelSize)} accent />
             <SelectParam label="clone voice" value={cloneVoice} values={voices.clones.map((item) => item.name)} onChange={setCloneVoice} accent />
             <SelectParam label="language" value={language} values={QWEN_LANGUAGES} onChange={setLanguage} />
             <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
@@ -1016,6 +1029,7 @@ function QwenStudioPage({
       {mode === "custom" && (
         <div className="qwen-panel">
           <div className="params qwen-params">
+            <SelectParam label="model" value={modelSize} values={["0.6b", "1.7b"]} onChange={(value) => setModelSize(value as QwenModelSize)} accent />
             <SelectParam label="speaker" value={speaker} values={voices.presets.map((item) => item.name)} onChange={setSpeaker} accent />
             <SelectParam label="language" value={language} values={QWEN_LANGUAGES} onChange={setLanguage} />
             <SelectParam label="format" value={format} values={["wav", "mp3", "opus", "ogg", "flac"]} onChange={setFormat} />
@@ -1028,6 +1042,7 @@ function QwenStudioPage({
       {mode === "design" && (
         <div className="qwen-panel">
           <div className="params qwen-params">
+            <SelectParam label="model" value="1.7b" values={["1.7b"]} onChange={() => setModelSize("1.7b")} accent />
             <label className="param">
               <span className="param-label">save name</span>
               <input className="qwen-inline-input" value={designName} onChange={(event) => setDesignName(event.target.value)} />
