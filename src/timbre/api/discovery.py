@@ -14,6 +14,7 @@ from timbre.manager import BackendManager
 from timbre.models import download_model, model_records, set_active_model
 from timbre.voices.store import VoiceStore
 from timbre.api.qwen import QWEN_VOICES_DIR
+from timbre.backends.tts.qwen3 import DEFAULT_QWEN3_VOICES
 
 router = APIRouter()
 
@@ -80,6 +81,7 @@ async def control_model(profile_id: str, payload: ModelAction, request: Request)
 @router.get("/v1/voices")
 async def voices(request: Request) -> dict[str, object]:
     store = request.app.state.voice_store
+    qwen_store = getattr(request.app.state, "qwen_voice_store", VoiceStore(QWEN_VOICES_DIR))
     backend_voices = request.app.state.manager.all_voices()
     cloned = [
         {
@@ -91,18 +93,35 @@ async def voices(request: Request) -> dict[str, object]:
         for record in store.list()
     ]
     cloned_names = {record["name"] for record in cloned}
+    qwen_enabled = "qwen3" in backend_voices
+    qwen_cloned = [
+        {
+            "name": record.name,
+            "backend": "qwen3",
+            "type": "qwen_clone",
+            "audio_path": str(record.audio_path) if record.audio_path else None,
+        }
+        for record in qwen_store.list()
+    ] if qwen_enabled else []
     presets = [
         {"name": voice, "backend": backend, "type": "preset"}
         for backend, voices_for_backend in backend_voices.items()
         for voice in voices_for_backend
         if voice not in cloned_names
     ]
+    if qwen_enabled:
+        qwen_known = {record["name"] for record in qwen_cloned}
+        presets.extend(
+            {"name": voice, "backend": "qwen3", "type": "preset"}
+            for voice in sorted(DEFAULT_QWEN3_VOICES)
+            if voice not in qwen_known
+        )
     aliases = [
         {"name": alias, "backend": backend, "target": target, "type": "alias"}
         for backend, backend_aliases in request.app.state.config.voices.aliases.items()
         for alias, target in backend_aliases.items()
     ]
-    return {"object": "list", "data": aliases + presets + cloned}
+    return {"object": "list", "data": aliases + presets + qwen_cloned + cloned}
 
 
 def _backend_from_cache(filename: str) -> str:

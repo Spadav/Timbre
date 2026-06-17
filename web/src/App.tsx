@@ -30,7 +30,7 @@ type Backend = {
 type Voice = {
   name: string;
   backend?: string;
-  type: "preset" | "cloned" | "alias";
+  type: "preset" | "cloned" | "qwen_clone" | "alias";
   target?: string;
   audio_path?: string | null;
   prepared_backends?: string[];
@@ -426,7 +426,9 @@ function SpeakPage({
 
   const voiceOptions = useMemo(() => {
     const cloned = voices.filter(
-      (item) => item.type === "cloned" && item.prepared_backends?.includes(backend)
+      (item) =>
+        (item.type === "cloned" && item.prepared_backends?.includes(backend)) ||
+        (item.type === "qwen_clone" && item.backend === backend)
     );
     const presets = voices.filter(
       (item) => (item.type === "preset" || item.type === "alias") && item.backend === backend
@@ -1223,6 +1225,7 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   const [error, setError] = useState("");
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const cloned = voices.filter((voice) => voice.type === "cloned");
+  const qwenCloned = voices.filter((voice) => voice.type === "qwen_clone");
   const presets = voices.filter((voice) => voice.type === "preset");
   const aliases = voices.filter((voice) => voice.type === "alias");
   const ttsBackends = [...new Set(voices.filter((voice) => voice.backend).map((voice) => voice.backend as string))];
@@ -1277,6 +1280,11 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
     onRefresh();
   }
 
+  async function removeQwenClone(voice: string) {
+    await fetch(`/v1/qwen/voices/${encodeURIComponent(voice)}`, { method: "DELETE" });
+    onRefresh();
+  }
+
   async function saveAlias(event: FormEvent) {
     event.preventDefault();
     if (!aliasBackend || !aliasName.trim() || !aliasTarget.trim()) return;
@@ -1319,7 +1327,11 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
   }
 
   async function preview(voice: Voice) {
-    const key = voice.type === "cloned" ? `clone:${voice.name}` : `${voice.backend}:${voice.name}`;
+    const key = voice.type === "cloned"
+      ? `clone:${voice.name}`
+      : voice.type === "qwen_clone"
+        ? `qwen:${voice.name}`
+        : `${voice.backend}:${voice.name}`;
     const audio = previewAudioRef.current;
     if (activePreview === key && audio && !audio.paused) {
       stopPreview(audio);
@@ -1330,8 +1342,11 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
     setError("");
     try {
       let blob: Blob;
-      if (voice.type === "cloned") {
-        const res = await fetch(`/v1/voices/${encodeURIComponent(voice.name)}/reference`);
+      if (voice.type === "cloned" || voice.type === "qwen_clone") {
+        const endpoint = voice.type === "qwen_clone"
+          ? `/v1/qwen/voices/${encodeURIComponent(voice.name)}/reference`
+          : `/v1/voices/${encodeURIComponent(voice.name)}/reference`;
+        const res = await fetch(endpoint);
         if (!res.ok) {
           const body = await safeJson(res);
           throw new Error(body.detail || `preview failed: ${res.status}`);
@@ -1496,7 +1511,36 @@ function VoicesPage({ voices, onRefresh }: { voices: Voice[]; onRefresh: () => v
         ))}
       </div>
 
-      <SectionHeader num="04" title="presets" right={`${presets.length}`} />
+      <SectionHeader num="04" title="qwen studio clones" right={`${qwenCloned.length}`} />
+      <div className="voice-grid">
+        {qwenCloned.map((voice) => (
+          <div className="voice-card" key={`qwen-${voice.name}`}>
+            <div className="voice-name">{voice.name}</div>
+            <div className="voice-meta">qwen3 · studio clone</div>
+            <div className="voice-actions">
+              <button
+                className="small-btn"
+                onClick={() => preview(voice)}
+                disabled={loadingPreview !== ""}
+                title="Preview"
+              >
+                {activePreview === `qwen:${voice.name}` ? <Square size={13} /> : <Play size={13} />}
+                {loadingPreview === `qwen:${voice.name}`
+                  ? "..."
+                  : activePreview === `qwen:${voice.name}`
+                    ? "Stop"
+                    : "Preview"}
+              </button>
+              <button className="small-btn danger" onClick={() => removeQwenClone(voice.name)}>
+                <Trash2 size={13} />
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <SectionHeader num="05" title="presets" right={`${presets.length}`} />
       <div className="voice-grid">
         {presets.map((voice) => (
           <div className="voice-card" key={`${voice.backend}-${voice.name}`}>
@@ -1815,6 +1859,34 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
   --output timbre.wav`}
       />
       <ApiNote text="For TTS, model is the backend name. Use pocket, supertonic, or qwen3 when enabled. response_format accepts wav, mp3, opus, ogg, or flac. language and steps are backend-specific fields used by some backends." />
+      <ApiCode
+        title="Qwen clone through OpenAI route"
+        code={`curl ${baseUrl}/v1/audio/speech \\
+  -H "content-type: application/json" \\
+  -d '{
+    "model": "qwen3",
+    "input": "This uses a saved Qwen clone through the OpenAI-compatible route.",
+    "voice": "my_qwen_voice",
+    "model_size": "0.6b",
+    "response_format": "wav"
+  }' \\
+  --output qwen-openai-clone.wav`}
+      />
+      <ApiCode
+        title="Qwen preset through OpenAI route"
+        code={`curl ${baseUrl}/v1/audio/speech \\
+  -H "content-type: application/json" \\
+  -d '{
+    "model": "qwen3",
+    "input": "This uses a Qwen preset speaker with an instruction.",
+    "voice": "Vivian",
+    "qwen_mode": "preset",
+    "model_size": "0.6b",
+    "instructions": "Speak warmly with calm confidence.",
+    "response_format": "wav"
+  }' \\
+  --output qwen-openai-preset.wav`}
+      />
 
       <SectionHeader num="04" title="qwen studio" />
       <ApiCode

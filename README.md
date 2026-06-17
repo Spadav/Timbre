@@ -78,6 +78,34 @@ Switch backends by changing `model`: `pocket`, `supertonic`, or `qwen3`.
 
 Supported output formats: `wav`, `mp3`, `opus`, `ogg`, `flac`.
 
+Qwen also works through this OpenAI-compatible route. Use a Qwen Studio clone name as `voice` for clone mode, or a Qwen preset voice for preset mode. Timbre defaults this route to the lighter `0.6b` Qwen profiles unless you pass `"model_size":"1.7b"`.
+
+```bash
+curl http://127.0.0.1:9000/v1/audio/speech \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "qwen3",
+    "input": "This uses a saved Qwen clone through the OpenAI route.",
+    "voice": "my_qwen_voice",
+    "model_size": "0.6b"
+  }' \
+  --output qwen-openai-clone.wav
+```
+
+```bash
+curl http://127.0.0.1:9000/v1/audio/speech \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "qwen3",
+    "input": "This uses a Qwen preset speaker with an instruction.",
+    "voice": "Vivian",
+    "instructions": "Speak warmly with calm confidence.",
+    "qwen_mode": "preset",
+    "model_size": "0.6b"
+  }' \
+  --output qwen-openai-preset.wav
+```
+
 ### Speech-to-Text
 
 ```bash
@@ -245,12 +273,12 @@ Available Qwen model profiles:
 - `qwen3:1.7b-customvoice`
 - `qwen3:1.7b-voicedesign`
 
-You can still use Qwen through the generic OpenAI-compatible speech route when the active Qwen model supports the selected voice:
+You can also use Qwen through the generic OpenAI-compatible speech route. Timbre automatically switches between the Qwen Base profile for saved clone voices and the Qwen CustomVoice profile for preset voices:
 
 ```bash
 curl http://127.0.0.1:9000/v1/audio/speech \
   -H "content-type: application/json" \
-  -d '{"model":"qwen3","input":"Hello from Qwen.","voice":"Vivian"}' \
+  -d '{"model":"qwen3","input":"Hello from Qwen.","voice":"Vivian","model_size":"0.6b"}' \
   --output qwen.wav
 ```
 
