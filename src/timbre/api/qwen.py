@@ -12,6 +12,7 @@ from timbre.audio import convert_audio, media_type_for
 from timbre.backends.tts.qwen3 import DEFAULT_QWEN3_VOICES
 from timbre.config import CONFIG_DIR, CONFIG_PATH, TimbreConfig, dump_config
 from timbre.errors import BackendUnavailable, UnknownBackend
+from timbre.eventlog import Timer, client_host, event_log
 from timbre.manager import BackendManager
 from timbre.models import set_active_model
 from timbre.voices.store import SAFE_NAME, VoiceStore
@@ -143,10 +144,36 @@ async def delete_qwen_voice(request: Request, name: str) -> dict[str, object]:
 
 @router.post("/clone/speech")
 async def qwen_clone_speech(payload: QwenCloneSpeechRequest, request: Request) -> Response:
+    log = event_log(request)
+    timer = Timer()
     record = _qwen_store(request).get(payload.voice)
     if record is None or record.audio_path is None:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.clone",
+            status="error",
+            message=f"unknown qwen clone voice '{payload.voice}'",
+            backend="qwen3",
+            voice=payload.voice,
+            model=f"{payload.model_size}-base",
+            input_chars=len(payload.input),
+            client=client_host(request),
+        )
         raise HTTPException(status_code=404, detail=f"Unknown Qwen clone voice '{payload.voice}'.")
     try:
+        log.add(
+            kind="tts",
+            operation="qwen.clone",
+            status="start",
+            message="qwen clone generation started",
+            backend="qwen3",
+            voice=payload.voice,
+            model=f"{payload.model_size}-base",
+            format=payload.response_format,
+            input_chars=len(payload.input),
+            client=client_host(request),
+        )
         await _ensure_qwen_model(request, "base", payload.model_size)
         backend = await request.app.state.manager.get_tts("qwen3")
         audio = await backend.synthesize_clone(
@@ -157,16 +184,70 @@ async def qwen_clone_speech(payload: QwenCloneSpeechRequest, request: Request) -
             ref_text=_read_text(record.path / "reference.txt"),
             x_vector_only_mode=payload.x_vector_only_mode,
         )
+        log.add(
+            kind="tts",
+            operation="qwen.clone",
+            status="ok",
+            message="qwen clone generated",
+            backend="qwen3",
+            voice=payload.voice,
+            model=f"{payload.model_size}-base",
+            format=payload.response_format,
+            input_chars=len(payload.input),
+            output_bytes=len(audio),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         return _audio_response(audio, payload.response_format)
     except UnknownBackend as exc:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.clone",
+            status="error",
+            message=str(exc),
+            backend="qwen3",
+            voice=payload.voice,
+            model=f"{payload.model_size}-base",
+            input_chars=len(payload.input),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except BackendUnavailable as exc:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.clone",
+            status="error",
+            message=str(exc),
+            backend="qwen3",
+            voice=payload.voice,
+            model=f"{payload.model_size}-base",
+            input_chars=len(payload.input),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/custom-voice/speech")
 async def qwen_custom_voice_speech(payload: QwenCustomVoiceSpeechRequest, request: Request) -> Response:
+    log = event_log(request)
+    timer = Timer()
     try:
+        log.add(
+            kind="tts",
+            operation="qwen.preset",
+            status="start",
+            message="qwen preset generation started",
+            backend="qwen3",
+            voice=payload.speaker,
+            model=f"{payload.model_size}-customvoice",
+            format=payload.response_format,
+            input_chars=len(payload.input),
+            client=client_host(request),
+        )
         await _ensure_qwen_model(request, "customvoice", payload.model_size)
         backend = await request.app.state.manager.get_tts("qwen3")
         audio = await backend.synthesize_custom_voice(
@@ -176,16 +257,69 @@ async def qwen_custom_voice_speech(payload: QwenCustomVoiceSpeechRequest, reques
             instruct=payload.instruct,
             speed=payload.speed,
         )
+        log.add(
+            kind="tts",
+            operation="qwen.preset",
+            status="ok",
+            message="qwen preset generated",
+            backend="qwen3",
+            voice=payload.speaker,
+            model=f"{payload.model_size}-customvoice",
+            format=payload.response_format,
+            input_chars=len(payload.input),
+            output_bytes=len(audio),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         return _audio_response(audio, payload.response_format)
     except UnknownBackend as exc:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.preset",
+            status="error",
+            message=str(exc),
+            backend="qwen3",
+            voice=payload.speaker,
+            model=f"{payload.model_size}-customvoice",
+            input_chars=len(payload.input),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except BackendUnavailable as exc:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.preset",
+            status="error",
+            message=str(exc),
+            backend="qwen3",
+            voice=payload.speaker,
+            model=f"{payload.model_size}-customvoice",
+            input_chars=len(payload.input),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/voice-design/speech")
 async def qwen_voice_design_speech(payload: QwenVoiceDesignSpeechRequest, request: Request) -> Response:
+    log = event_log(request)
+    timer = Timer()
     try:
+        log.add(
+            kind="tts",
+            operation="qwen.voice_design",
+            status="start",
+            message="qwen voice design generation started",
+            backend="qwen3",
+            model="1.7b-voicedesign",
+            format=payload.response_format,
+            input_chars=len(payload.input),
+            client=client_host(request),
+        )
         await _ensure_qwen_model(request, "voice_design", payload.model_size)
         backend = await request.app.state.manager.get_tts("qwen3")
         audio = await backend.synthesize_voice_design(
@@ -194,10 +328,47 @@ async def qwen_voice_design_speech(payload: QwenVoiceDesignSpeechRequest, reques
             language=payload.language,
             speed=payload.speed,
         )
+        log.add(
+            kind="tts",
+            operation="qwen.voice_design",
+            status="ok",
+            message="qwen voice design generated",
+            backend="qwen3",
+            model="1.7b-voicedesign",
+            format=payload.response_format,
+            input_chars=len(payload.input),
+            output_bytes=len(audio),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         return _audio_response(audio, payload.response_format)
     except UnknownBackend as exc:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.voice_design",
+            status="error",
+            message=str(exc),
+            backend="qwen3",
+            model="1.7b-voicedesign",
+            input_chars=len(payload.input),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except BackendUnavailable as exc:
+        log.add(
+            level="error",
+            kind="tts",
+            operation="qwen.voice_design",
+            status="error",
+            message=str(exc),
+            backend="qwen3",
+            model="1.7b-voicedesign",
+            input_chars=len(payload.input),
+            duration=timer.seconds,
+            client=client_host(request),
+        )
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 

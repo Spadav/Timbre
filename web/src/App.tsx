@@ -1,6 +1,7 @@
 import {
   ClipboardList,
   Cpu,
+  Download,
   Headphones,
   Mic,
   Play,
@@ -93,6 +94,24 @@ type ActivityEntry = {
   status: "ok" | "error";
 };
 
+type ServerLogEntry = {
+  id: string;
+  ts: string;
+  level: string;
+  kind: string;
+  operation: string;
+  status: string;
+  message: string;
+  backend?: string | null;
+  voice?: string | null;
+  model?: string | null;
+  format?: string | null;
+  input_chars?: number | null;
+  output_bytes?: number | null;
+  duration?: number | null;
+  client?: string | null;
+};
+
 type BackendSettings = {
   enabled: boolean;
   device: string;
@@ -145,6 +164,12 @@ const api = {
   async models(): Promise<ModelRecord[]> {
     const res = await fetch("/v1/models");
     if (!res.ok) throw new Error("model list failed");
+    const body = await res.json();
+    return body.data;
+  },
+  async logs(): Promise<ServerLogEntry[]> {
+    const res = await fetch("/v1/logs?limit=200");
+    if (!res.ok) throw new Error("log list failed");
     const body = await res.json();
     return body.data;
   },
@@ -256,6 +281,7 @@ function App() {
   const [backends, setBackends] = useState<Backend[]>([]);
   const [models, setModels] = useState<ModelRecord[]>([]);
   const [voices, setVoices] = useState<Voice[]>([]);
+  const [serverLogs, setServerLogs] = useState<ServerLogEntry[]>([]);
   const [statusText, setStatusText] = useState("starting");
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
 
@@ -272,16 +298,18 @@ function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [health, backendList, modelList, voiceList] = await Promise.all([
+      const [health, backendList, modelList, voiceList, logList] = await Promise.all([
         api.health(),
         api.backends(),
         api.models(),
-        api.voices()
+        api.voices(),
+        api.logs()
       ]);
       setOnline(health.status === "ok");
       setBackends(backendList);
       setModels(modelList);
       setVoices(voiceList);
+      setServerLogs(logList);
       setStatusText("online");
     } catch (err) {
       setOnline(false);
@@ -364,7 +392,7 @@ function App() {
           {page === "backends" && <BackendsPage backends={backends} onRefresh={refresh} />}
           {page === "models" && <ModelsPage models={models} onRefresh={refresh} />}
           {page === "voices" && <VoicesPage voices={voices} onRefresh={refresh} />}
-          {page === "log" && <LogPage activity={activity} />}
+          {page === "log" && <LogPage logs={serverLogs} />}
           {page === "config" && <ConfigPage backends={backends} onRefresh={refresh} />}
           {page === "api" && <ApiPage backends={backends} voices={voices} />}
         </section>
@@ -498,6 +526,7 @@ function SpeakPage({
   }
 
   const rtf = duration > 0 && generationSeconds > 0 ? generationSeconds / duration : 0;
+  const downloadName = `timbre-${cleanFilePart(backend)}-${cleanFilePart(voice)}.${format}`;
 
   return (
     <div className="speak-layout">
@@ -535,6 +564,14 @@ function SpeakPage({
           <div className="wave-player">
             <button className="play-btn" onClick={audioPlayer.toggle} disabled={!audioUrl} title={audioPlayer.playing ? "Stop" : "Play"}>
               {audioPlayer.playing ? <Square size={15} /> : <Play size={15} />}
+            </button>
+            <button
+              className="icon-btn"
+              onClick={() => downloadBlobUrl(audioUrl, downloadName)}
+              disabled={!audioUrl}
+              title="Download audio"
+            >
+              <Download size={15} />
             </button>
             <div className="track" />
             <div className="wave-time">
@@ -967,6 +1004,9 @@ function QwenStudioPage({
   }[mode];
   const canGenerate = Boolean(text.trim()) && (mode !== "clone" || Boolean(cloneVoice));
   const rtf = duration > 0 && generationSeconds > 0 ? generationSeconds / duration : 0;
+  const qwenDownloadName = `timbre-qwen-${cleanFilePart(mode)}-${cleanFilePart(
+    mode === "clone" ? cloneVoice : mode === "custom" ? speaker : designName
+  )}.${format}`;
 
   return (
     <div className="page-grid">
@@ -1094,6 +1134,14 @@ function QwenStudioPage({
         <div className="wave-player">
           <button className="play-btn" onClick={audioPlayer.toggle} disabled={!audioUrl} title={audioPlayer.playing ? "Stop" : "Play"}>
             {audioPlayer.playing ? <Square size={15} /> : <Play size={15} />}
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => downloadBlobUrl(audioUrl, qwenDownloadName)}
+            disabled={!audioUrl}
+            title="Download audio"
+          >
+            <Download size={15} />
           </button>
           <div className="track" />
           <div className="wave-time">{formatTime(audioPlayer.currentTime)} / {formatTime(duration)}</div>
@@ -1756,6 +1804,11 @@ function ConfigBackendGroup({
       <div className="config-backends">
         {Object.entries(group.backends).map(([name, backend]) => {
           const key = `${groupName}.${name}`;
+          const setBackendOption = (option: string, value: unknown) => {
+            const options = { ...backendOptions(backend), [option]: value };
+            onCoreChange(name, { [option]: value });
+            onOptionsChange(key, JSON.stringify(options, null, 2));
+          };
           return (
             <div className="config-backend-card" key={key}>
               <div className="config-backend-head">
@@ -1789,6 +1842,9 @@ function ConfigBackendGroup({
                   />
                 </label>
               </div>
+              {groupName === "tts" && name === "qwen3" && (
+                <QwenRuntimeOptions backend={backend} onChange={setBackendOption} />
+              )}
               <details className="advanced-options">
                 <summary>Advanced options</summary>
                 <label className="config-field options-field">
@@ -1802,6 +1858,166 @@ function ConfigBackendGroup({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function QwenRuntimeOptions({
+  backend,
+  onChange
+}: {
+  backend: BackendSettings;
+  onChange: (option: string, value: unknown) => void;
+}) {
+  return (
+    <div className="qwen-config-panel">
+      <div className="config-note">
+        Runtime and generation settings. Blank generation fields use qwen_tts defaults.
+      </div>
+      <div className="config-grid qwen-runtime-grid">
+        <label className="config-field">
+          <span>attention</span>
+          <select
+            value={stringListValue(backend.attention, "flash_attention_2,sdpa,eager")}
+            onChange={(event) => onChange("attention", splitListValue(event.target.value))}
+          >
+            <option value="flash_attention_2,sdpa,eager">flash then fallback</option>
+            <option value="flash_attention_2">flash only</option>
+            <option value="sdpa,eager">sdpa then eager</option>
+            <option value="eager">eager only</option>
+          </select>
+        </label>
+        <label className="config-field">
+          <span>dtype</span>
+          <select value={stringValue(backend.dtype, "auto")} onChange={(event) => onChange("dtype", event.target.value)}>
+            <option value="auto">auto</option>
+            <option value="bfloat16">bfloat16</option>
+            <option value="float16">float16</option>
+            <option value="float32">float32</option>
+          </select>
+        </label>
+        <label className="config-field">
+          <span>matmul</span>
+          <select
+            value={stringValue(backend.matmul_precision, "high")}
+            onChange={(event) => onChange("matmul_precision", event.target.value)}
+          >
+            <option value="highest">highest</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+          </select>
+        </label>
+        <label className="config-field">
+          <span>cudnn bench</span>
+          <select
+            value={boolValue(backend.cudnn_benchmark) ? "true" : "false"}
+            onChange={(event) => onChange("cudnn_benchmark", event.target.value === "true")}
+          >
+            <option value="false">false</option>
+            <option value="true">true</option>
+          </select>
+        </label>
+        <label className="config-field">
+          <span>compile</span>
+          <select
+            value={boolValue(backend.compile) ? "true" : "false"}
+            onChange={(event) => onChange("compile", event.target.value === "true")}
+          >
+            <option value="false">false</option>
+            <option value="true">true</option>
+          </select>
+        </label>
+        <label className="config-field">
+          <span>compile mode</span>
+          <select
+            value={stringValue(backend.compile_mode, "reduce-overhead")}
+            onChange={(event) => onChange("compile_mode", event.target.value)}
+          >
+            <option value="reduce-overhead">reduce-overhead</option>
+            <option value="default">default</option>
+            <option value="max-autotune">max-autotune</option>
+          </select>
+        </label>
+        <label className="config-field">
+          <span>compile targets</span>
+          <input
+            value={stringListValue(backend.compile_targets, "model")}
+            onChange={(event) => onChange("compile_targets", splitListValue(event.target.value))}
+          />
+        </label>
+        <label className="config-field">
+          <span>warmup</span>
+          <select
+            value={boolValue(backend.warmup) ? "true" : "false"}
+            onChange={(event) => onChange("warmup", event.target.value === "true")}
+          >
+            <option value="false">false</option>
+            <option value="true">true</option>
+          </select>
+        </label>
+        <label className="config-field wide">
+          <span>warmup text</span>
+          <input
+            value={stringValue(backend.warmup_text, "Warmup.")}
+            onChange={(event) => onChange("warmup_text", event.target.value)}
+          />
+        </label>
+        <label className="config-field">
+          <span>warmup voice</span>
+          <input
+            value={stringValue(backend.warmup_voice, "")}
+            placeholder="Vivian or clone name"
+            onChange={(event) => onChange("warmup_voice", event.target.value)}
+          />
+        </label>
+        <label className="config-field">
+          <span>chunk chars</span>
+          <input
+            type="number"
+            min="0"
+            value={numberValue(backend.chunk_chars, 0)}
+            onChange={(event) => onChange("chunk_chars", Number(event.target.value))}
+          />
+        </label>
+        <label className="config-field">
+          <span>temperature</span>
+          <input
+            type="number"
+            step="0.05"
+            value={optionalNumberText(backend.temperature)}
+            onChange={(event) => onChange("temperature", optionalNumberValue(event.target.value))}
+          />
+        </label>
+        <label className="config-field">
+          <span>top p</span>
+          <input
+            type="number"
+            step="0.05"
+            min="0"
+            max="1"
+            value={optionalNumberText(backend.top_p)}
+            onChange={(event) => onChange("top_p", optionalNumberValue(event.target.value))}
+          />
+        </label>
+        <label className="config-field">
+          <span>max tokens</span>
+          <input
+            type="number"
+            min="1"
+            value={optionalNumberText(backend.max_new_tokens)}
+            onChange={(event) => onChange("max_new_tokens", optionalIntegerValue(event.target.value))}
+          />
+        </label>
+        <label className="config-field">
+          <span>repeat penalty</span>
+          <input
+            type="number"
+            step="0.01"
+            value={optionalNumberText(backend.repetition_penalty)}
+            onChange={(event) => onChange("repetition_penalty", optionalNumberValue(event.target.value))}
+          />
+        </label>
       </div>
     </div>
   );
@@ -1841,6 +2057,7 @@ function ApiPage({ backends, voices }: { backends: Backend[]; voices: Voice[] })
       <ApiCode title="Models" code={`curl ${baseUrl}/v1/models`} />
       <ApiCode title="Backends" code={`curl ${baseUrl}/v1/backends`} />
       <ApiCode title="Voices" code={`curl ${baseUrl}/v1/voices`} />
+      <ApiCode title="Server logs" code={`curl ${baseUrl}/v1/logs?limit=200`} />
 
       <SectionHeader num="03" title="text to speech" />
       <ApiCode
@@ -2071,10 +2288,46 @@ function ApiNote({ text }: { text: string }) {
   return <div className="api-note">{text}</div>;
 }
 
-function LogPage({ activity }: { activity: ActivityEntry[] }) {
+function LogPage({ logs }: { logs: ServerLogEntry[] }) {
   return (
     <div className="page-grid">
-      <SectionHeader num="01" title="activity log" right={`${activity.length}`} />
+      <SectionHeader num="01" title="server log" right={`${logs.length}`} />
+      <div className="log-table">
+        <div className="log-row log-head">
+          <span>Time</span>
+          <span>Level</span>
+          <span>Event</span>
+          <span>Message</span>
+          <span>Duration</span>
+          <span>Size</span>
+          <span>Status</span>
+        </div>
+        {logs.length === 0 && <div className="empty-log">No server events yet.</div>}
+        {logs.map((entry) => (
+          <div className="log-row" key={entry.id}>
+            <span>{formatLogTime(entry.ts)}</span>
+            <span className={`log-badge ${entry.kind.toLowerCase()}`}>{entry.level}</span>
+            <span title={`${entry.kind}.${entry.operation}`}>
+              {entry.kind}.{entry.operation}
+              {entry.backend ? ` / ${entry.backend}` : ""}
+            </span>
+            <span title={logDetails(entry)}>{truncate(logDetails(entry), 72)}</span>
+            <span>{entry.duration == null ? "-" : `${entry.duration.toFixed(2)}s`}</span>
+            <span>{formatLogSize(entry)}</span>
+            <span className={entry.status === "ok" ? "ok-text" : entry.status === "error" ? "err-text" : ""}>
+              {entry.status}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BrowserActivityLog({ activity }: { activity: ActivityEntry[] }) {
+  return (
+    <div className="page-grid">
+      <SectionHeader num="01" title="ui activity" right={`${activity.length}`} />
       <div className="log-table">
         <div className="log-row log-head">
           <span>Time</span>
@@ -2688,6 +2941,41 @@ function truncate(value: string, max: number) {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+function formatLogTime(ts: string) {
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return ts;
+  return date.toLocaleTimeString([], { hour12: false });
+}
+
+function logDetails(entry: ServerLogEntry) {
+  const parts = [entry.message];
+  if (entry.voice) parts.push(`voice=${entry.voice}`);
+  if (entry.model) parts.push(`model=${entry.model}`);
+  if (entry.client) parts.push(`client=${entry.client}`);
+  return parts.join(" · ");
+}
+
+function formatLogSize(entry: ServerLogEntry) {
+  const parts: string[] = [];
+  if (entry.input_chars != null) parts.push(`${entry.input_chars}ch`);
+  if (entry.output_bytes != null) parts.push(`${Math.round(entry.output_bytes / 1024)}KB`);
+  return parts.join(" / ") || "-";
+}
+
+function cleanFilePart(value: string) {
+  return (value || "audio").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "audio";
+}
+
+function downloadBlobUrl(url: string, filename: string) {
+  if (!url) return;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
@@ -2750,6 +3038,41 @@ function groupWithOptions(
 function backendOptions(backend: BackendSettings) {
   const { enabled: _enabled, device: _device, ttl: _ttl, ...options } = backend;
   return options;
+}
+
+function stringValue(value: unknown, fallback = "") {
+  return typeof value === "string" ? value : fallback;
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function boolValue(value: unknown) {
+  return value === true;
+}
+
+function stringListValue(value: unknown, fallback = "") {
+  if (Array.isArray(value)) return value.map(String).join(",");
+  return typeof value === "string" ? value : fallback;
+}
+
+function splitListValue(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function optionalNumberText(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function optionalNumberValue(value: string) {
+  const clean = value.trim();
+  return clean ? Number(clean) : null;
+}
+
+function optionalIntegerValue(value: string) {
+  const clean = value.trim();
+  return clean ? Number.parseInt(clean, 10) : null;
 }
 
 export default App;

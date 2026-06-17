@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from timbre.config import CONFIG_PATH, BackendGroupConfig, TimbreConfig, dump_config, parse_config
 from timbre.errors import UnknownBackend
+from timbre.eventlog import event_log
 from timbre.manager import BackendManager
 from timbre.models import download_model, model_records, set_active_model
 from timbre.voices.store import VoiceStore
@@ -59,6 +60,12 @@ async def backends(request: Request) -> dict[str, list[dict[str, object]]]:
 @router.get("/v1/models")
 async def models(request: Request) -> dict[str, object]:
     return {"object": "list", "data": model_records(request.app.state.config)}
+
+
+@router.get("/v1/logs")
+async def logs(request: Request, limit: int = 200) -> dict[str, object]:
+    bounded = max(1, min(limit, 500))
+    return {"object": "list", "data": event_log(request).list(bounded)}
 
 
 @router.post("/v1/models/{profile_id:path}")

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,8 @@ QWEN3_MODEL_REPOS = {
     "1.7b-customvoice": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
 }
 
+LOGGER = logging.getLogger("timbre")
+
 
 class Qwen3Backend(TTSBackend):
     name = "qwen3"
@@ -52,22 +56,34 @@ class Qwen3Backend(TTSBackend):
             source = _model_source(self.config)
             device = _resolve_device(str(self.config.get("device", "cuda:auto")), torch)
             dtype = _resolve_dtype(str(self.config.get("dtype", "auto")), device, torch)
-            try:
-                torch.set_float32_matmul_precision("high")
-            except Exception:
-                pass
+            _configure_torch_runtime(torch, self.config)
 
             kwargs = {"device_map": device, "dtype": dtype}
             last_error: Exception | None = None
             for attention in _attention_attempts(self.config):
                 try:
-                    return Qwen3TTSModel.from_pretrained(
+                    model = Qwen3TTSModel.from_pretrained(
                         source,
                         **kwargs,
                         attn_implementation=attention,
                     )
+                    LOGGER.info(
+                        "qwen.load | ok | model loaded | source=%s device=%s dtype=%s attention=%s",
+                        source,
+                        device,
+                        _dtype_name(dtype),
+                        attention,
+                    )
+                    model = _maybe_compile_model(model, self.config, torch)
+                    _warmup_model(model, self.config, self.voices_dir)
+                    return model
                 except Exception as exc:
                     last_error = exc
+                    LOGGER.warning(
+                        "qwen.load | fallback | attention failed | attention=%s error=%s",
+                        attention,
+                        exc,
+                    )
 
             raise BackendUnavailable(f"Qwen3 model failed to load: {last_error}")
 
@@ -84,13 +100,30 @@ class Qwen3Backend(TTSBackend):
             language = str(opts.get("lang") or self.config.get("language", "Auto"))
             speed = float(opts.get("speed") or self.config.get("speed", 1.0))
             instruct = opts.get("instruct") or self.config.get("instruct")
+            generation_kwargs = _generation_kwargs(self.config)
+            chunk_chars = _chunk_chars(self.config)
 
             with self._generation_lock:
                 if _is_cloned_voice(voice, self.voices_dir):
-                    audio, sample_rate = self._generate_cloned(model, text, voice, language, speed)
+                    audio, sample_rate = self._generate_cloned(
+                        model,
+                        text,
+                        voice,
+                        language,
+                        speed,
+                        generation_kwargs=generation_kwargs,
+                        chunk_chars=chunk_chars,
+                    )
                 else:
                     audio, sample_rate = _generate_native(
-                        model, text, voice, language, instruct, speed
+                        model,
+                        text,
+                        voice,
+                        language,
+                        instruct,
+                        speed,
+                        generation_kwargs=generation_kwargs,
+                        chunk_chars=chunk_chars,
                     )
             return pcm_wav_bytes(audio, sample_rate)
 
@@ -187,12 +220,17 @@ class Qwen3Backend(TTSBackend):
                     ref_text=ref_text,
                     x_vector_only_mode=x_vector_only_mode,
                 )
-                wavs, sample_rate = model.generate_voice_clone(
-                    text=text,
-                    language=language,
-                    voice_clone_prompt=prompt,
+                audio, sample_rate = _generate_by_chunks(
+                    lambda chunk: model.generate_voice_clone(
+                        text=chunk,
+                        language=language,
+                        voice_clone_prompt=prompt,
+                        **_generation_kwargs(self.config),
+                    ),
+                    text,
+                    _chunk_chars(self.config),
                 )
-            return pcm_wav_bytes(_apply_speed(wavs[0], speed), int(sample_rate))
+            return pcm_wav_bytes(_apply_speed(audio, speed), int(sample_rate))
 
         return await asyncio.to_thread(run)
 
@@ -224,6 +262,8 @@ class Qwen3Backend(TTSBackend):
                     language,
                     instruct,
                     speed,
+                    generation_kwargs=_generation_kwargs(self.config),
+                    chunk_chars=_chunk_chars(self.config),
                 )
             return pcm_wav_bytes(audio, sample_rate)
 
@@ -250,14 +290,19 @@ class Qwen3Backend(TTSBackend):
                 )
             with self._generation_lock:
                 try:
-                    wavs, sample_rate = model.generate_voice_design(
-                        text=text,
-                        language=language,
-                        instruct=instruct,
+                    audio, sample_rate = _generate_by_chunks(
+                        lambda chunk: model.generate_voice_design(
+                            text=chunk,
+                            language=language,
+                            instruct=instruct,
+                            **_generation_kwargs(self.config),
+                        ),
+                        text,
+                        _chunk_chars(self.config),
                     )
                 except Exception as exc:
                     raise BackendUnavailable(f"Qwen3 VoiceDesign generation failed: {exc}") from exc
-            return pcm_wav_bytes(_apply_speed(wavs[0], speed), int(sample_rate))
+            return pcm_wav_bytes(_apply_speed(audio, speed), int(sample_rate))
 
         return await asyncio.to_thread(run)
 
@@ -269,6 +314,8 @@ class Qwen3Backend(TTSBackend):
     def voices(self) -> list[str]:
         if _model_type(self.config) == "customvoice":
             return sorted(DEFAULT_QWEN3_VOICES)
+        if _model_type(self.config) == "base":
+            return _cloned_voices(self.voices_dir)
         return []
 
     def _generate_cloned(
@@ -278,6 +325,8 @@ class Qwen3Backend(TTSBackend):
         voice: str,
         language: str,
         speed: float,
+        generation_kwargs: dict[str, Any] | None = None,
+        chunk_chars: int = 0,
     ) -> tuple[Any, int]:
         if _model_type(self.config) != "base":
             raise BackendUnavailable(
@@ -288,12 +337,17 @@ class Qwen3Backend(TTSBackend):
         if reference is None:
             raise BackendUnavailable(f"Qwen3 cloned voice '{voice}' has no reference audio.")
         prompt = self._voice_prompt_for_reference(model, reference)
-        wavs, sample_rate = model.generate_voice_clone(
-            text=text,
-            language=language,
-            voice_clone_prompt=prompt,
+        audio, sample_rate = _generate_by_chunks(
+            lambda chunk: model.generate_voice_clone(
+                text=chunk,
+                language=language,
+                voice_clone_prompt=prompt,
+                **(generation_kwargs or {}),
+            ),
+            text,
+            chunk_chars,
         )
-        return _apply_speed(wavs[0], speed), int(sample_rate)
+        return _apply_speed(audio, speed), int(sample_rate)
 
     def _voice_prompt(self, model: Any, voice: str, reference: Path) -> Any:
         return self._voice_prompt_for_reference(model, reference, cache_prefix=voice)
@@ -393,6 +447,102 @@ def _resolve_dtype(dtype: str, device: str, torch: Any) -> Any:
     return torch.float32
 
 
+def _dtype_name(dtype: Any) -> str:
+    return str(dtype).replace("torch.", "")
+
+
+def _configure_torch_runtime(torch: Any, config: dict[str, Any]) -> None:
+    precision = config.get("matmul_precision", "high")
+    if precision:
+        try:
+            torch.set_float32_matmul_precision(str(precision))
+        except Exception as exc:
+            LOGGER.warning("qwen.load | warning | matmul precision failed | error=%s", exc)
+
+    if "cudnn_benchmark" in config:
+        try:
+            torch.backends.cudnn.benchmark = _bool_config(config.get("cudnn_benchmark"))
+        except Exception as exc:
+            LOGGER.warning("qwen.load | warning | cudnn benchmark failed | error=%s", exc)
+
+
+def _maybe_compile_model(model: Any, config: dict[str, Any], torch: Any) -> Any:
+    if not _bool_config(config.get("compile", False)):
+        return model
+    compile_fn = getattr(torch, "compile", None)
+    if not callable(compile_fn):
+        LOGGER.warning("qwen.load | warning | torch.compile unavailable")
+        return model
+
+    mode = str(config.get("compile_mode") or "reduce-overhead")
+    targets = _compile_targets(config)
+    compiled_any = False
+    for target in targets:
+        if target in {"self", "wrapper"}:
+            try:
+                model = compile_fn(model, mode=mode)
+                compiled_any = True
+                LOGGER.info("qwen.load | ok | compiled qwen wrapper | mode=%s", mode)
+            except Exception as exc:
+                LOGGER.warning("qwen.load | warning | compile failed | target=%s error=%s", target, exc)
+            continue
+
+        module = getattr(model, target, None)
+        if module is None:
+            LOGGER.warning("qwen.load | warning | compile target missing | target=%s", target)
+            continue
+        try:
+            setattr(model, target, compile_fn(module, mode=mode))
+            compiled_any = True
+            LOGGER.info("qwen.load | ok | compiled qwen target | target=%s mode=%s", target, mode)
+        except Exception as exc:
+            LOGGER.warning("qwen.load | warning | compile failed | target=%s error=%s", target, exc)
+
+    if not compiled_any:
+        LOGGER.warning("qwen.load | warning | no qwen compile target was compiled")
+    return model
+
+
+def _compile_targets(config: dict[str, Any]) -> list[str]:
+    targets = config.get("compile_targets", ["model"])
+    if isinstance(targets, list):
+        clean = [str(target).strip() for target in targets if str(target).strip()]
+        return clean or ["model"]
+    return [str(targets).strip() or "model"]
+
+
+def _warmup_model(model: Any, config: dict[str, Any], voices_dir: str | None) -> None:
+    if not _bool_config(config.get("warmup", False)):
+        return
+    text = str(config.get("warmup_text") or "Warmup.")
+    language = str(config.get("language", "Auto"))
+    model_type = _model_type(config)
+    kwargs = _generation_kwargs(config)
+    try:
+        if model_type == "base":
+            voice = str(config.get("warmup_voice") or "")
+            reference = _reference_path(voice, voices_dir) if voice else None
+            if reference is None:
+                LOGGER.info("qwen.load | skip | warmup needs warmup_voice clone for base model")
+                return
+            prompt = model.create_voice_clone_prompt(ref_audio=str(reference), x_vector_only_mode=True)
+            model.generate_voice_clone(
+                text=text,
+                language=language,
+                voice_clone_prompt=prompt,
+                **kwargs,
+            )
+        elif model_type == "voice_design":
+            instruct = str(config.get("warmup_instruct") or "Neutral studio voice.")
+            model.generate_voice_design(text=text, language=language, instruct=instruct, **kwargs)
+        else:
+            voice = str(config.get("warmup_voice") or "Vivian")
+            model.generate_custom_voice(text=text, speaker=voice, language=language, **kwargs)
+        LOGGER.info("qwen.load | ok | warmup completed | model_type=%s", model_type)
+    except Exception as exc:
+        LOGGER.warning("qwen.load | warning | warmup failed | error=%s", exc)
+
+
 def _attention_attempts(config: dict[str, Any]) -> list[str]:
     configured = config.get("attention")
     if isinstance(configured, list):
@@ -413,17 +563,103 @@ def _generate_native(
     language: str,
     instruct: Any,
     speed: float,
+    generation_kwargs: dict[str, Any] | None = None,
+    chunk_chars: int = 0,
 ) -> tuple[Any, int]:
     try:
-        wavs, sample_rate = model.generate_custom_voice(
-            text=text,
-            speaker="Vivian" if voice == "default" else voice,
-            language=language,
-            instruct=instruct,
+        audio, sample_rate = _generate_by_chunks(
+            lambda chunk: model.generate_custom_voice(
+                text=chunk,
+                speaker="Vivian" if voice == "default" else voice,
+                language=language,
+                instruct=instruct,
+                **(generation_kwargs or {}),
+            ),
+            text,
+            chunk_chars,
         )
     except Exception as exc:
         raise BackendUnavailable(f"Qwen3 voice '{voice}' is not available for this model.") from exc
-    return _apply_speed(wavs[0], speed), int(sample_rate)
+    return _apply_speed(audio, speed), int(sample_rate)
+
+
+def _generate_by_chunks(generator: Any, text: str, chunk_chars: int) -> tuple[Any, int]:
+    chunks = _split_text(text, chunk_chars)
+    audios = []
+    sample_rate = 0
+    for chunk in chunks:
+        wavs, sample_rate = generator(chunk)
+        audios.append(wavs[0])
+    return _concat_audio(audios), int(sample_rate)
+
+
+def _split_text(text: str, chunk_chars: int) -> list[str]:
+    text = text.strip()
+    if not text:
+        return [text]
+    if chunk_chars <= 0 or len(text) <= chunk_chars:
+        return [text]
+
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?;:])\s+", text) if part.strip()]
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        if len(sentence) > chunk_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(sentence[index : index + chunk_chars] for index in range(0, len(sentence), chunk_chars))
+            continue
+        candidate = f"{current} {sentence}".strip()
+        if current and len(candidate) > chunk_chars:
+            chunks.append(current)
+            current = sentence
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks or [text]
+
+
+def _concat_audio(audios: list[Any]) -> Any:
+    if len(audios) == 1:
+        return audios[0]
+    try:
+        import numpy as np
+
+        return np.concatenate([np.asarray(audio).astype("float32") for audio in audios])
+    except ImportError as exc:
+        raise BackendUnavailable("Qwen3 chunking requires numpy.") from exc
+
+
+def _chunk_chars(config: dict[str, Any]) -> int:
+    try:
+        return max(0, int(config.get("chunk_chars") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _generation_kwargs(config: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    for key in ("temperature", "top_p", "repetition_penalty", "subtalker_top_p", "subtalker_temperature"):
+        value = config.get(key)
+        if value not in {None, ""}:
+            kwargs[key] = float(value)
+    for key in ("max_new_tokens", "top_k", "subtalker_top_k"):
+        value = config.get(key)
+        if value not in {None, ""}:
+            kwargs[key] = int(value)
+    for key in ("do_sample", "subtalker_dosample", "non_streaming_mode"):
+        value = config.get(key)
+        if value not in {None, ""}:
+            kwargs[key] = _bool_config(value)
+    return kwargs
+
+
+def _bool_config(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _apply_speed(audio: Any, speed: float) -> Any:

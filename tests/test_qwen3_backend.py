@@ -8,8 +8,10 @@ from timbre.backends.tts.qwen3 import (
     Qwen3Backend,
     _best_cuda_device,
     _generate_native,
+    _generation_kwargs,
     _model_source,
     _resolve_device,
+    _split_text,
 )
 
 
@@ -59,6 +61,34 @@ def test_qwen3_native_generation_maps_default_voice() -> None:
 
     assert audio == [0.0, 0.25, -0.25]
     assert sample_rate == 24000
+
+
+def test_qwen3_generation_kwargs_forward_configured_values() -> None:
+    kwargs = _generation_kwargs(
+        {
+            "temperature": 0.8,
+            "top_p": 0.92,
+            "max_new_tokens": 2048,
+            "repetition_penalty": 1.08,
+            "do_sample": "true",
+        }
+    )
+
+    assert kwargs == {
+        "temperature": 0.8,
+        "top_p": 0.92,
+        "max_new_tokens": 2048,
+        "repetition_penalty": 1.08,
+        "do_sample": True,
+    }
+
+
+def test_qwen3_split_text_respects_chunk_limit() -> None:
+    chunks = _split_text("First sentence. Second sentence is longer. Third.", 24)
+
+    assert all(len(chunk) <= 24 for chunk in chunks)
+    assert chunks[0] == "First sentence."
+    assert chunks[-1] == "Third."
 
 
 def test_qwen3_resolves_auto_cuda_to_gpu_with_most_free_memory() -> None:

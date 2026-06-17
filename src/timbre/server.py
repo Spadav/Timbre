@@ -14,15 +14,18 @@ from timbre.api.speech import router as speech_router
 from timbre.api.transcribe import router as transcribe_router
 from timbre.api.voices import router as voices_router
 from timbre.config import CONFIG_PATH, TimbreConfig, load_config
+from timbre.eventlog import EventLog, configure_logging
 from timbre.manager import BackendManager
 from timbre.voices.store import VoiceStore
 
 
 def create_app(config: TimbreConfig | None = None) -> FastAPI:
+    configure_logging()
     cfg = config or load_config()
     manager = BackendManager(cfg)
     voice_store = VoiceStore(Path(cfg.voices.dir))
     qwen_voice_store = VoiceStore(QWEN_VOICES_DIR)
+    event_log = EventLog()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -38,6 +41,7 @@ def create_app(config: TimbreConfig | None = None) -> FastAPI:
     app.state.manager = manager
     app.state.voice_store = voice_store
     app.state.qwen_voice_store = qwen_voice_store
+    app.state.event_log = event_log
     app.include_router(discovery_router)
     app.include_router(qwen_router)
     app.include_router(speech_router)

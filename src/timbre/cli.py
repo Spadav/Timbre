@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> None:
     serve_parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     serve_parser.add_argument("--host")
     serve_parser.add_argument("--port", type=int)
+    serve_parser.add_argument("--access-log", action="store_true", help="Enable raw HTTP access logs.")
 
     setup_parser = subparsers.add_parser("setup", help="Write a default config file.")
     setup_parser.add_argument("--config", type=Path, default=CONFIG_PATH)
@@ -43,7 +44,7 @@ def main(argv: list[str] | None = None) -> None:
         config = load_config(args.config)
         host = args.host or config.server.host
         port = args.port or config.server.port
-        uvicorn.run(create_app(config), host=host, port=port)
+        uvicorn.run(create_app(config), host=host, port=port, access_log=args.access_log)
         return
     if args.command == "download-models":
         download_models(args.config, args.backend, args.model, args.set_default)

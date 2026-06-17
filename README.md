@@ -240,6 +240,12 @@ curl http://127.0.0.1:9000/v1/backends/tts/pocket \
   -d '{"action":"load"}'
 ```
 
+**Server logs.** Timbre records server-side TTS/STT generation events, Qwen mode switches, errors, durations, input size, output size, backend, voice, model, and client. These events are printed to Docker logs and exposed to the UI Log page. Raw HTTP access logs are quiet by default; start with `timbre serve --access-log` if you want every request line.
+
+```bash
+curl http://127.0.0.1:9000/v1/logs
+```
+
 **Model profiles.** Download and switch between model variants per backend.
 
 ```bash

@@ -1100,6 +1100,24 @@ button {
   overflow: hidden;
 }
 
+.qwen-config-panel {
+  border-top: 1px solid var(--bdr);
+}
+
+.config-note {
+  padding: 10px 14px;
+  color: var(--txt-s);
+  font-size: 12px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--bdr);
+}
+
+.qwen-runtime-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 0;
+  border-radius: 0;
+}
+
 .advanced-options {
   border-top: 1px solid var(--bdr);
 }
