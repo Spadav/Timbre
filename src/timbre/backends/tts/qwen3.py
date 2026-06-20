@@ -201,6 +201,7 @@ class Qwen3Backend(TTSBackend):
         speed: float = 1.0,
         ref_text: str | None = None,
         x_vector_only_mode: bool | None = None,
+        generation_options: dict[str, Any] | None = None,
     ) -> bytes:
         await self.ensure_loaded()
 
@@ -225,7 +226,7 @@ class Qwen3Backend(TTSBackend):
                         text=chunk,
                         language=language,
                         voice_clone_prompt=prompt,
-                        **_generation_kwargs(self.config),
+                        **_generation_kwargs(self.config, generation_options),
                     ),
                     text,
                     _chunk_chars(self.config),
@@ -276,6 +277,7 @@ class Qwen3Backend(TTSBackend):
         *,
         language: str = "Auto",
         speed: float = 1.0,
+        generation_options: dict[str, Any] | None = None,
     ) -> bytes:
         await self.ensure_loaded()
 
@@ -295,7 +297,7 @@ class Qwen3Backend(TTSBackend):
                             text=chunk,
                             language=language,
                             instruct=instruct,
-                            **_generation_kwargs(self.config),
+                            **_generation_kwargs(self.config, generation_options),
                         ),
                         text,
                         _chunk_chars(self.config),
@@ -639,18 +641,21 @@ def _chunk_chars(config: dict[str, Any]) -> int:
         return 0
 
 
-def _generation_kwargs(config: dict[str, Any]) -> dict[str, Any]:
+def _generation_kwargs(
+    config: dict[str, Any], overrides: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    values = {**config, **{key: value for key, value in (overrides or {}).items() if value is not None}}
     kwargs: dict[str, Any] = {}
     for key in ("temperature", "top_p", "repetition_penalty", "subtalker_top_p", "subtalker_temperature"):
-        value = config.get(key)
+        value = values.get(key)
         if value not in {None, ""}:
             kwargs[key] = float(value)
     for key in ("max_new_tokens", "top_k", "subtalker_top_k"):
-        value = config.get(key)
+        value = values.get(key)
         if value not in {None, ""}:
             kwargs[key] = int(value)
     for key in ("do_sample", "subtalker_dosample", "non_streaming_mode"):
-        value = config.get(key)
+        value = values.get(key)
         if value not in {None, ""}:
             kwargs[key] = _bool_config(value)
     return kwargs

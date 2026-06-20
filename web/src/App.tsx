@@ -58,6 +58,19 @@ type QwenVoices = {
 
 type QwenModelSize = "0.6b" | "1.7b";
 
+type QwenGenerationOption =
+  | "temperature"
+  | "top_p"
+  | "top_k"
+  | "repetition_penalty"
+  | "do_sample"
+  | "subtalker_temperature"
+  | "subtalker_top_p"
+  | "subtalker_top_k"
+  | "subtalker_dosample";
+
+type QwenGenerationForm = Record<QwenGenerationOption, string>;
+
 type QwenOutput = {
   blob: Blob;
   mode: "clone" | "custom" | "design";
@@ -785,6 +798,17 @@ function QwenStudioPage({
   const [audioUrl, setAudioUrl] = useState("");
   const [duration, setDuration] = useState(0);
   const [generationSeconds, setGenerationSeconds] = useState(0);
+  const [generationOptions, setGenerationOptions] = useState<QwenGenerationForm>({
+    temperature: "",
+    top_p: "",
+    top_k: "",
+    repetition_penalty: "",
+    do_sample: "",
+    subtalker_temperature: "",
+    subtalker_top_p: "",
+    subtalker_top_k: "",
+    subtalker_dosample: ""
+  });
   const [lastOutput, setLastOutput] = useState<QwenOutput | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioPlayer = useAudioPlayer(audioRef, audioUrl);
@@ -907,12 +931,13 @@ function QwenStudioPage({
         : mode === "custom"
           ? "/v1/qwen/custom-voice/speech"
           : "/v1/qwen/voice-design/speech";
+    const requestOptions = qwenGenerationPayload(generationOptions);
     const payload =
       mode === "clone"
-        ? { input: text, voice: cloneVoice, model_size: modelSize, response_format: format, speed, language }
+        ? { input: text, voice: cloneVoice, model_size: modelSize, response_format: format, speed, language, ...requestOptions }
         : mode === "custom"
           ? { input: text, speaker, model_size: modelSize, instruct, response_format: format, speed, language }
-          : { input: text, instruct, model_size: "1.7b", response_format: format, speed, language };
+          : { input: text, instruct, model_size: "1.7b", response_format: format, speed, language, ...requestOptions };
     await generateAudio(endpoint, payload, mode);
   }
 
@@ -1076,23 +1101,32 @@ function QwenStudioPage({
               placeholder="reference transcript"
             />
           </form>
-          <div className="voice-grid">
-            {voices.clones.map((item) => (
-              <div className="voice-card" key={item.name}>
-                <div className="voice-name">{item.name}</div>
-                <div className="voice-meta">{item.prepared ? "prepared" : "reference only"}</div>
-                <div className="voice-actions">
-                  <button className="small-btn" disabled={busy !== ""} onClick={() => prepareClone(item.name)}>
-                    {busy === `prepare:${item.name}` ? "..." : item.prepared ? "Preloaded" : "Preload"}
+          <details className="clone-voice-manager">
+            <summary>
+              <span>Cloned voices</span>
+              <span>{voices.clones.length}</span>
+            </summary>
+            <div className="clone-voice-list">
+              {voices.clones.length === 0 && <div className="clone-voice-empty">No cloned voices saved.</div>}
+              {voices.clones.map((item) => (
+                <div className={item.name === cloneVoice ? "clone-voice-row selected" : "clone-voice-row"} key={item.name}>
+                  <button className="clone-voice-select" onClick={() => setCloneVoice(item.name)} title={`Use ${item.name}`}>
+                    <span>{item.name}</span>
+                    <small>{item.prepared ? "prepared" : "reference only"}</small>
                   </button>
-                  <button className="small-btn danger" disabled={busy !== ""} onClick={() => deleteClone(item.name)}>
-                    <Trash2 size={13} />
-                    Delete
-                  </button>
+                  <div className="clone-voice-actions">
+                    <button className="small-btn" disabled={busy !== "" || item.prepared} onClick={() => prepareClone(item.name)}>
+                      {busy === `prepare:${item.name}` ? "..." : item.prepared ? "Preloaded" : "Preload"}
+                    </button>
+                    <button className="small-btn danger" disabled={busy !== ""} onClick={() => deleteClone(item.name)}>
+                      <Trash2 size={13} />
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </details>
         </div>
       )}
 
@@ -1127,6 +1161,13 @@ function QwenStudioPage({
             {busy === "save-design" ? "Saving" : "Save as clone"}
           </button>
         </div>
+      )}
+
+      {mode !== "custom" && (
+        <QwenGenerationOptions
+          values={generationOptions}
+          onChange={(name, value) => setGenerationOptions({ ...generationOptions, [name]: value })}
+        />
       )}
 
       <SectionHeader num="04" title="output" right={duration ? `${duration.toFixed(1)}s` : "0.0s"} />
@@ -1164,6 +1205,79 @@ function QwenStudioPage({
         <span className="gen-hint">qwen studio</span>
       </button>
     </div>
+  );
+}
+
+function QwenGenerationOptions({
+  values,
+  onChange
+}: {
+  values: QwenGenerationForm;
+  onChange: (name: QwenGenerationOption, value: string) => void;
+}) {
+  return (
+    <details className="qwen-generation-options">
+      <summary>Generation options <span>blank uses global config</span></summary>
+      <div className="config-grid qwen-generation-grid">
+        <QwenNumberOption label="temperature" name="temperature" value={values.temperature} step="0.05" min="0.01" onChange={onChange} />
+        <QwenNumberOption label="top p" name="top_p" value={values.top_p} step="0.05" min="0.01" max="1" onChange={onChange} />
+        <QwenNumberOption label="top k" name="top_k" value={values.top_k} step="1" min="0" onChange={onChange} />
+        <QwenNumberOption label="repeat penalty" name="repetition_penalty" value={values.repetition_penalty} step="0.01" min="0.01" onChange={onChange} />
+        <QwenBooleanOption label="sample" name="do_sample" value={values.do_sample} onChange={onChange} />
+        <QwenNumberOption label="subtalker temp" name="subtalker_temperature" value={values.subtalker_temperature} step="0.05" min="0.01" onChange={onChange} />
+        <QwenNumberOption label="subtalker top p" name="subtalker_top_p" value={values.subtalker_top_p} step="0.05" min="0.01" max="1" onChange={onChange} />
+        <QwenNumberOption label="subtalker top k" name="subtalker_top_k" value={values.subtalker_top_k} step="1" min="0" onChange={onChange} />
+        <QwenBooleanOption label="subtalker sample" name="subtalker_dosample" value={values.subtalker_dosample} onChange={onChange} />
+      </div>
+    </details>
+  );
+}
+
+function QwenNumberOption({
+  label,
+  name,
+  value,
+  step,
+  min,
+  max,
+  onChange
+}: {
+  label: string;
+  name: QwenGenerationOption;
+  value: string;
+  step: string;
+  min?: string;
+  max?: string;
+  onChange: (name: QwenGenerationOption, value: string) => void;
+}) {
+  return (
+    <label className="config-field">
+      <span>{label}</span>
+      <input type="number" value={value} step={step} min={min} max={max} placeholder="global" onChange={(event) => onChange(name, event.target.value)} />
+    </label>
+  );
+}
+
+function QwenBooleanOption({
+  label,
+  name,
+  value,
+  onChange
+}: {
+  label: string;
+  name: QwenGenerationOption;
+  value: string;
+  onChange: (name: QwenGenerationOption, value: string) => void;
+}) {
+  return (
+    <label className="config-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(name, event.target.value)}>
+        <option value="">global</option>
+        <option value="true">true</option>
+        <option value="false">false</option>
+      </select>
+    </label>
   );
 }
 
@@ -2132,7 +2246,10 @@ curl -X POST '${baseUrl}/v1/qwen/voices/my_qwen_voice/prepare?model_size=1.7b'`}
     "model_size": "1.7b",
     "response_format": "wav",
     "speed": 1.0,
-    "language": "Auto"
+    "language": "Auto",
+    "temperature": 0.8,
+    "top_p": 0.95,
+    "do_sample": true
   }' \\
   --output qwen-clone.wav`}
       />
@@ -2147,7 +2264,11 @@ curl -X POST '${baseUrl}/v1/qwen/voices/my_qwen_voice/prepare?model_size=1.7b'`}
     "instruct": "Speak warmly with calm confidence.",
     "response_format": "wav",
     "speed": 1.0,
-    "language": "Auto"
+    "language": "Auto",
+    "temperature": 0.8,
+    "top_k": 50,
+    "repetition_penalty": 1.05,
+    "subtalker_temperature": 0.9
   }' \\
   --output qwen-preset.wav`}
       />
@@ -2180,7 +2301,7 @@ curl -X POST '${baseUrl}/v1/qwen/voices/my_qwen_voice/prepare?model_size=1.7b'`}
         code={`curl ${baseUrl}/v1/qwen/voices/my_qwen_voice/reference --output qwen-reference.wav
 curl -X DELETE ${baseUrl}/v1/qwen/voices/my_qwen_voice`}
       />
-      <ApiNote text="Qwen Studio endpoints are separate from the OpenAI-compatible TTS route. Clone and preset voice support model_size 0.6b or 1.7b. Voice Design uses 1.7b. Saving a design as a clone means uploading the exact generated WAV to /v1/qwen/voices." />
+      <ApiNote text="Qwen Studio endpoints are separate from the OpenAI-compatible TTS route. Clone and Voice Design accept optional per-request temperature, top_p, top_k, repetition_penalty, do_sample, subtalker_temperature, subtalker_top_p, subtalker_top_k, and subtalker_dosample values. Omitted values inherit the global Qwen config. Clone and preset voice support model_size 0.6b or 1.7b. Voice Design uses 1.7b." />
 
       <SectionHeader num="05" title="speech to text" />
       <ApiCode
@@ -3073,6 +3194,22 @@ function optionalNumberValue(value: string) {
 function optionalIntegerValue(value: string) {
   const clean = value.trim();
   return clean ? Number.parseInt(clean, 10) : null;
+}
+
+function qwenGenerationPayload(values: QwenGenerationForm) {
+  const payload: Partial<Record<QwenGenerationOption, number | boolean>> = {};
+  const integerOptions = new Set<QwenGenerationOption>(["top_k", "subtalker_top_k"]);
+  const booleanOptions = new Set<QwenGenerationOption>(["do_sample", "subtalker_dosample"]);
+  for (const [name, raw] of Object.entries(values) as [QwenGenerationOption, string][]) {
+    const value = raw.trim();
+    if (!value) continue;
+    if (booleanOptions.has(name)) {
+      payload[name] = value === "true";
+    } else {
+      payload[name] = integerOptions.has(name) ? Number.parseInt(value, 10) : Number(value);
+    }
+  }
+  return payload;
 }
 
 export default App;

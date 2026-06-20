@@ -83,6 +83,27 @@ def test_qwen3_generation_kwargs_forward_configured_values() -> None:
     }
 
 
+def test_qwen3_generation_kwargs_request_values_override_global_config() -> None:
+    kwargs = _generation_kwargs(
+        {
+            "temperature": 0.9,
+            "top_p": 1.0,
+            "do_sample": True,
+            "subtalker_dosample": True,
+        },
+        {
+            "temperature": 0.65,
+            "do_sample": False,
+            "subtalker_dosample": False,
+        },
+    )
+
+    assert kwargs["temperature"] == 0.65
+    assert kwargs["top_p"] == 1.0
+    assert kwargs["do_sample"] is False
+    assert kwargs["subtalker_dosample"] is False
+
+
 def test_qwen3_split_text_respects_chunk_limit() -> None:
     chunks = _split_text("First sentence. Second sentence is longer. Third.", 24)
 

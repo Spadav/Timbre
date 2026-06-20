@@ -180,7 +180,10 @@ curl http://127.0.0.1:9000/v1/qwen/clone/speech \
     "voice": "my_qwen_voice",
     "model_size": "1.7b",
     "response_format": "wav",
-    "language": "Auto"
+    "language": "Auto",
+    "temperature": 0.8,
+    "top_p": 0.95,
+    "do_sample": true
   }' \
   --output qwen-clone.wav
 ```
@@ -211,10 +214,19 @@ curl http://127.0.0.1:9000/v1/qwen/voice-design/speech \
     "instruct": "A warm mature narrator, slow pacing, intimate microphone.",
     "model_size": "1.7b",
     "response_format": "wav",
-    "language": "Auto"
+    "language": "Auto",
+    "temperature": 0.8,
+    "top_k": 50,
+    "repetition_penalty": 1.05,
+    "subtalker_temperature": 0.9
   }' \
   --output qwen-design.wav
 ```
+
+Clone and Voice Design also accept optional per-request `temperature`, `top_p`, `top_k`,
+`repetition_penalty`, `do_sample`, `subtalker_temperature`, `subtalker_top_p`,
+`subtalker_top_k`, and `subtalker_dosample` values. Omitted fields inherit the global Qwen
+backend configuration.
 
 To save a Voice Design result as a reusable clone, upload the generated WAV:
 

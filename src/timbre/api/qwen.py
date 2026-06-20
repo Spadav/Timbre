@@ -22,7 +22,19 @@ router = APIRouter(prefix="/v1/qwen")
 QWEN_VOICES_DIR = CONFIG_DIR / "qwen" / "voices"
 
 
-class QwenCloneSpeechRequest(BaseModel):
+class QwenGenerationOptions(BaseModel):
+    temperature: float | None = Field(default=None, gt=0)
+    top_p: float | None = Field(default=None, gt=0, le=1)
+    top_k: int | None = Field(default=None, ge=0)
+    repetition_penalty: float | None = Field(default=None, gt=0)
+    do_sample: bool | None = None
+    subtalker_temperature: float | None = Field(default=None, gt=0)
+    subtalker_top_p: float | None = Field(default=None, gt=0, le=1)
+    subtalker_top_k: int | None = Field(default=None, ge=0)
+    subtalker_dosample: bool | None = None
+
+
+class QwenCloneSpeechRequest(QwenGenerationOptions):
     input: str = Field(min_length=1)
     voice: str = Field(min_length=1)
     model_size: Literal["0.6b", "1.7b"] = "1.7b"
@@ -42,7 +54,7 @@ class QwenCustomVoiceSpeechRequest(BaseModel):
     language: str = "Auto"
 
 
-class QwenVoiceDesignSpeechRequest(BaseModel):
+class QwenVoiceDesignSpeechRequest(QwenGenerationOptions):
     input: str = Field(min_length=1)
     instruct: str = Field(min_length=1)
     model_size: Literal["1.7b"] = "1.7b"
@@ -183,6 +195,7 @@ async def qwen_clone_speech(payload: QwenCloneSpeechRequest, request: Request) -
             speed=payload.speed,
             ref_text=_read_text(record.path / "reference.txt"),
             x_vector_only_mode=payload.x_vector_only_mode,
+            generation_options=_generation_overrides(payload),
         )
         log.add(
             kind="tts",
@@ -327,6 +340,7 @@ async def qwen_voice_design_speech(payload: QwenVoiceDesignSpeechRequest, reques
             payload.instruct,
             language=payload.language,
             speed=payload.speed,
+            generation_options=_generation_overrides(payload),
         )
         log.add(
             kind="tts",
@@ -413,6 +427,23 @@ def _qwen_store(request: Request) -> VoiceStore:
         store = VoiceStore(QWEN_VOICES_DIR)
         request.app.state.qwen_voice_store = store
     return store
+
+
+def _generation_overrides(payload: QwenGenerationOptions) -> dict[str, object]:
+    return payload.model_dump(
+        include={
+            "temperature",
+            "top_p",
+            "top_k",
+            "repetition_penalty",
+            "do_sample",
+            "subtalker_temperature",
+            "subtalker_top_p",
+            "subtalker_top_k",
+            "subtalker_dosample",
+        },
+        exclude_none=True,
+    )
 
 
 async def _prepare_record(
