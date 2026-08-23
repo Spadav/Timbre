@@ -22,6 +22,17 @@ def test_set_active_model_updates_backend_options_and_default() -> None:
     )
 
 
+def test_set_active_pocket_model_updates_language() -> None:
+    config = parse_config({})
+
+    set_active_model(config, "pocket:italian_24l")
+
+    assert config.tts.default == "pocket"
+    assert config.tts.backends["pocket"].enabled
+    assert config.tts.backends["pocket"].options["model"] == "italian_24l"
+    assert config.tts.backends["pocket"].options["language"] == "italian_24l"
+
+
 def test_set_active_qwen3_model_updates_backend_options_and_default() -> None:
     config = parse_config({})
 
@@ -42,8 +53,17 @@ def test_model_records_mark_active_profile() -> None:
     records = model_records(config)
 
     active = [record["id"] for record in records if record["active"]]
+    assert "pocket:english" in active
     assert "whisper:base" in active
-    assert "parakeet:int8" not in active
+    assert "parakeet:int8" in active
+
+
+def test_pocket_profiles_include_new_language_weights() -> None:
+    profile = get_profile("pocket:english_2026-04")
+
+    assert profile.backend == "pocket"
+    assert profile.downloadable
+    assert profile.options == {"model": "english_2026-04", "language": "english_2026-04"}
 
 
 def test_qwen3_profiles_are_downloadable() -> None:

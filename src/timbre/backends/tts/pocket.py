@@ -22,7 +22,20 @@ class PocketBackend(TTSBackend):
                 from pocket_tts import TTSModel
             except ImportError as exc:
                 raise BackendUnavailable("Install PocketTTS with: pip install 'timbre-voice[pocket]'") from exc
-            model = TTSModel.load_model(language=self.config.get("language", "english"))
+            language = self.config.get("language") or self.config.get("model") or "english"
+            load_kwargs: dict[str, Any] = {
+                "language": language,
+                "temp": float(self.config.get("temp", 0.7)),
+                "lsd_decode_steps": int(self.config.get("lsd_decode_steps", 1)),
+                "eos_threshold": float(self.config.get("eos_threshold", -4.0)),
+                "quantize": bool(self.config.get("quantize", False)),
+            }
+            if self.config.get("noise_clamp") is not None:
+                load_kwargs["noise_clamp"] = float(self.config["noise_clamp"])
+            if self.config.get("config"):
+                load_kwargs.pop("language", None)
+                load_kwargs["config"] = self.config["config"]
+            model = TTSModel.load_model(**load_kwargs)
             device = self.config.get("device", "cpu")
             if device.startswith("cuda"):
                 model = model.cuda(_device_index(device))
@@ -40,8 +53,7 @@ class PocketBackend(TTSBackend):
             if engine is None:
                 raise BackendUnavailable("PocketTTS backend is not loaded.")
             state = _voice_state(engine, voice, self.voices_dir, self.config.get("language", "english"))
-            max_tokens = int(opts.get("max_tokens", self.config.get("max_tokens", 4096)))
-            result = engine.generate_audio(state, text, max_tokens=max_tokens)
+            result = engine.generate_audio(state, text, **_generation_kwargs(self.config, opts))
             return _tensor_to_wav(result, int(self.config.get("sample_rate", 24000)))
 
         return await asyncio.to_thread(run)
@@ -72,17 +84,7 @@ class PocketBackend(TTSBackend):
 
     @property
     def voices(self) -> list[str]:
-        preset = [
-            "default",
-            "alba",
-            "marius",
-            "javert",
-            "jean",
-            "fantine",
-            "cosette",
-            "eponine",
-            "azelma",
-        ]
+        preset = ["default", *_pocket_preset_voices()]
         if self.voices_dir:
             root = Path(self.voices_dir)
             cloned = [path.name for path in root.iterdir() if path.is_dir()] if root.exists() else []
@@ -171,3 +173,47 @@ def _device_index(device: str) -> int:
         return int(device.split(":", 1)[1])
     except ValueError:
         return 0
+
+
+def _generation_kwargs(config: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"max_tokens": int(opts.get("max_tokens", config.get("max_tokens", 50)))}
+    frames_after_eos = opts.get("frames_after_eos", config.get("frames_after_eos"))
+    if frames_after_eos is not None:
+        kwargs["frames_after_eos"] = int(frames_after_eos)
+    return kwargs
+
+
+def _pocket_preset_voices() -> list[str]:
+    try:
+        from pocket_tts.models.tts_model import _ORIGINS_OF_PREDEFINED_VOICES
+
+        return sorted(_ORIGINS_OF_PREDEFINED_VOICES)
+    except Exception:
+        return [
+            "alba",
+            "anna",
+            "azelma",
+            "bill_boerst",
+            "caro_davy",
+            "charles",
+            "cosette",
+            "eponine",
+            "estelle",
+            "eve",
+            "fantine",
+            "george",
+            "giovanni",
+            "jane",
+            "javert",
+            "jean",
+            "juergen",
+            "lola",
+            "marius",
+            "mary",
+            "michael",
+            "paul",
+            "peter_yearsley",
+            "rafael",
+            "stuart_bell",
+            "vera",
+        ]

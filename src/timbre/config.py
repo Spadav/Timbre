@@ -59,7 +59,17 @@ def default_config() -> TimbreConfig:
         tts=BackendGroupConfig(
             default="pocket",
             backends={
-                "pocket": BackendConfig(enabled=True, device="cpu", ttl=0),
+                "pocket": BackendConfig(
+                    enabled=True,
+                    device="cpu",
+                    ttl=0,
+                    options={
+                        "model": "english",
+                        "language": "english",
+                        "quantize": False,
+                        "max_tokens": 50,
+                    },
+                ),
                 "supertonic": BackendConfig(
                     enabled=True,
                     device="cpu",

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from huggingface_hub import snapshot_download
+import yaml
+from huggingface_hub import snapshot_download, try_to_load_from_cache
 
 from timbre.config import CONFIG_DIR, TimbreConfig
 
@@ -26,14 +27,7 @@ class ModelProfile:
 def model_profiles() -> list[ModelProfile]:
     root = CONFIG_DIR / "models"
     return [
-        ModelProfile(
-            id="pocket:default",
-            backend="pocket",
-            kind="tts",
-            label="PocketTTS default",
-            path=root / "pocket" / "default",
-            options={},
-        ),
+        *_pocket_profiles(root),
         ModelProfile(
             id="supertonic:supertonic-3",
             backend="supertonic",
@@ -251,6 +245,8 @@ def download_model(profile_id: str) -> Path:
     profile.path.mkdir(parents=True, exist_ok=True)
     if profile.backend == "supertonic":
         return profile.path
+    if profile.backend == "pocket":
+        return _download_pocket_model(profile)
     if profile.backend == "whisper":
         from faster_whisper.utils import download_model as download_whisper_model
 
@@ -268,6 +264,8 @@ def download_model(profile_id: str) -> Path:
 def _profile_installed(profile: ModelProfile) -> bool:
     if not profile.downloadable:
         return True
+    if profile.backend == "pocket":
+        return _pocket_profile_installed(profile)
     return profile.path.exists() and any(profile.path.iterdir())
 
 
@@ -276,8 +274,100 @@ def _profile_active(config: TimbreConfig, profile: ModelProfile) -> bool:
     backend = group.backends.get(profile.backend)
     if backend is None:
         return False
+    if profile.backend == "pocket":
+        active_language = backend.options.get("language") or backend.options.get("model") or "english"
+        return active_language == profile.options.get("language")
     return all(
         backend.options.get(key) == value
         for key, value in profile.options.items()
         if key != "model_path"
     )
+
+
+def _pocket_profiles(root: Path) -> list[ModelProfile]:
+    models = [
+        ("english", "PocketTTS English (latest alias)"),
+        ("english_2026-04", "PocketTTS English 2026-04"),
+        ("english_2026-01", "PocketTTS English 2026-01"),
+        ("italian", "PocketTTS Italian"),
+        ("italian_24l", "PocketTTS Italian 24L"),
+        ("german", "PocketTTS German"),
+        ("german_24l", "PocketTTS German 24L"),
+        ("spanish", "PocketTTS Spanish"),
+        ("spanish_24l", "PocketTTS Spanish 24L"),
+        ("portuguese", "PocketTTS Portuguese"),
+        ("portuguese_24l", "PocketTTS Portuguese 24L"),
+        ("french_24l", "PocketTTS French 24L"),
+    ]
+    return [
+        ModelProfile(
+            id=f"pocket:{model}",
+            backend="pocket",
+            kind="tts",
+            label=label,
+            path=root / "pocket" / model,
+            options={"model": model, "language": model},
+            downloadable=True,
+        )
+        for model, label in models
+    ]
+
+
+def _download_pocket_model(profile: ModelProfile) -> Path:
+    from pocket_tts.utils.utils import download_if_necessary
+
+    language = str(profile.options["language"])
+    config = _pocket_config(language)
+    refs = [
+        config.get("weights_path"),
+        config.get("weights_path_without_voice_cloning"),
+        (config.get("flow_lm") or {}).get("lookup_table", {}).get("tokenizer_path"),
+    ]
+    for ref in refs:
+        if ref:
+            download_if_necessary(str(ref))
+    profile.path.mkdir(parents=True, exist_ok=True)
+    marker = profile.path / ".downloaded"
+    marker.write_text("Downloaded through PocketTTS cache.\n", encoding="utf-8")
+    return profile.path
+
+
+def _pocket_profile_installed(profile: ModelProfile) -> bool:
+    if profile.path.exists() and any(profile.path.iterdir()):
+        return True
+    try:
+        config = _pocket_config(str(profile.options["language"]))
+    except Exception:
+        return False
+    tokenizer = (config.get("flow_lm") or {}).get("lookup_table", {}).get("tokenizer_path")
+    weights = [config.get("weights_path"), config.get("weights_path_without_voice_cloning")]
+    return bool(tokenizer and _hf_ref_cached(tokenizer)) and any(
+        _hf_ref_cached(ref) for ref in weights if ref
+    )
+
+
+def _pocket_config(language: str) -> dict[str, Any]:
+    import pocket_tts
+
+    path = Path(pocket_tts.__file__).parent / "config" / f"{language}.yaml"
+    with path.open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def _hf_ref_cached(ref: str) -> bool:
+    if not ref.startswith("hf://"):
+        return Path(ref).exists()
+    repo_id, filename, revision = _parse_hf_ref(ref)
+    cached = try_to_load_from_cache(repo_id=repo_id, filename=filename, revision=revision)
+    return isinstance(cached, str)
+
+
+def _parse_hf_ref(ref: str) -> tuple[str, str, str | None]:
+    path = ref.removeprefix("hf://")
+    parts = path.split("/")
+    repo_id = "/".join(parts[:2])
+    filename = "/".join(parts[2:])
+    revision = None
+    if "@" in filename:
+        filename, revision = filename.split("@", 1)
+    return repo_id, filename, revision
